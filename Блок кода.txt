@@ -1,0 +1,4654 @@
+<%
+  Request.Add "AppWorkType", "1"
+
+  Set App = CreateObject("MApp.UApp")
+  vRateDateType = App.GetIniValueStr("SDM_IBS","RateDateType","EXEC")
+  Request.Add "RateDateType", vRateDateType
+
+  Set F=CreateObject("MScripts.cUserGridForm")
+  'Включить вызов процедуры для изменения стилей ячеек
+  F.SetFetchStyleSub "OnFetchStyle"
+  F.Init "SDM$IBS" & Request("AppWorkType"), Request, "Банковские ячейки", True, False, "", "OnUpdateCom"
+
+  F.AddGridColumn "OBJID", "Ид. ячейки", 10, 0
+  F.AddGridColumn "SUBJ_ID", "Ид. клиента", 10, 0
+  F.AddGridColumn "SUBJ_NAME", "ФИО", 10, 0
+  F.AddGridColumn "FILIAL", "Филиал", 10, 0
+  F.AddGridColumn "OTDEL", "Отделение", 10, 0
+  F.AddGridColumn "NUM_DOG", "Номер договора", 10, 0
+  F.AddGridColumn "NUM_IBS", "Номер ячейки", 10, 0
+  F.AddGridColumn "SIZE_IBS", "Размер ячейки", 10, 0
+'  F.AddGridColumn "PLACE", "Местоположение", 10, 0
+'  F.AddGridColumn "TARIFF", "Тариф", 10, 0
+  F.AddGridColumn "NNS", "Счет списания", 10, 0
+  F.AddGridColumn "DEPOSIT", "Залог", 10, 0
+  F.AddGridColumn "OBJID_DEPOSIT", "Номер счета залога за ключ", 10, 0
+  F.AddGridColumn "OBJID_RENT", "Номер счета аренды", 10, 0
+  F.AddGridColumn "DATE_OPEN", "Дата открытия", 10, 0
+  F.AddGridColumn "DFINAL", "Дата окончания", 10, 0
+  F.AddGridColumn "DATE_CLOSE", "Дата закрытия ячейки", 10, 0
+  F.AddGridColumn "USER_CLOSE", "Пользователь закрывший ячейку", 10, 0
+'  F.AddGridColumn "USER_INS", "Пользователь добавивший ячейку", 10, 0
+  F.AddGridColumn "USER_DEL", "Пользователь удаливший ячейку", 10, 0
+  F.AddGridColumn "DELAY", "Просрочка", 10, 0
+
+
+
+  F.AddCommand "Add", "Добавить", False, False
+  F.AddCommand "Edit", "Редактировать", False, True
+  F.AddCommand "Del", "Удалить", False, False
+  F.AddCommand "Process", "Печать", True, False, "Print"
+  F.AddCommand "Journal", "Журнал", True, False, "jour"
+'  F.AddCommand "Reports", "Отчеты", True, False, "report"
+    Set SR=F.AddParentCommand("Reports","Отчеты",true,false,"report")
+    F.AddChildCommand SR,"tariff_ibs","Текущие тарифы установленные в РБС"  ,true,false, "report"
+    F.AddChildCommand SR,"reestr_operjour","Отчет об изменениях за дату"  ,true,false, "report"
+    F.AddChildCommand SR,"reestr_end_ibs","Контроль сроков аренды ИБС"  ,true,false, "report"    
+    Set SC=F.AddParentCommand("TOOLS", "Операции", True, False, "tools")
+    F.AddChildCommand SC, "DEBT_RENT", "Списать аренду", True, False, "debt_rent"
+    F.AddChildCommand SC, "DEBT_DEPOSIT", "Списать залог", True, False, "debt_deposit"
+    F.AddChildCommand SC, "DEBT_OFF_DEPOSIT", "Вернуть залог", False, False, "debt_off_deposit"
+    F.AddChildCommand SC, "CLOSE_IBS", "Закрыть ячейку", False, False, "close_ibs"
+  '  F.AddChildCommand SC, "INCOME_IBS", "Списать в доход", False, False, "income_ibs"
+    F.AddChildCommand SC, "OVERDUE", "Списать просрочку", False, False, "overdue"
+    F.AddChildCommand SC, "PROLONG_RENT", "Продлить аренду", False, False, "prolong_rent"
+  F.AddCommand "INFO", "Проверка остатков", True, False, "Cash"
+  F.AddCommand "TARIFF", "Тариф ячейки", True, False, "Tax"
+  F.AddCommand "DOVER", "Доверенность", True, False, "Eye"
+
+  F.AddCommand "MAINA", "Проведенные документы" , True, False, "Reestr"
+ Set MD=F.AddParentCommand("UNLOCK","Вскрытие",true,false,"Unlock")
+    F.AddChildCommand MD,"LOSS","Утеря"  ,true,false, "Exclam"
+    F.AddChildCommand MD,"OTHER","Прочее"  ,true,false, "Exclam"
+ Set MR=F.AddParentCommand("MASS_OPER","Массовые операции",true,false,"processing")
+    F.AddChildCommand MR,"INCOME","Списать в доход"  ,true,false, "to_prov"
+    F.AddChildCommand MR,"INCOME_PROTOCOL_ERROR","Протокол ошибок"  ,true,false, "report"
+  F.AddCommand "GLOBAL_QUALS", "Глобальные настройки", True, False, "Attr_quals"
+  F.Show 0
+End Sub
+
+
+Sub Info
+  vObjID = GridForm.Text("OBJID")
+  Set M=CreateObject("MMessages.UMessages")
+  #sql_smt{
+     gc.SDM$IBS.get_IBS_info(:vObjId,:vOst_Deposit,:vOst_Rent,:vOst_Nns,:vOst_91202,:vOst_91203);
+ }
+M.Okmsgbox "ОСТАТОК НА СЧЕТЕ ЗАЛОГА: " & vOst_Deposit & vbLf & _
+           "ОСТАТОК НА СЧЕТЕ АРЕНДЫ: " & vOst_Rent & vbLf & _
+           "ОСТАТОК НА СЧЕТЕ 91202: " & vOst_91202 & vbLf & _
+           "ОСТАТОК НА СЧЕТЕ 91203: " & vOst_91203 & vbLf & _
+           "ОСТАТОК НА СЧЕТЕ ДЛЯ СПИСАНИЯ: " & vOst_Nns, vbYes, "ОСТАТКИ ПО СЧЕТАМ"
+End Sub
+
+Sub Add
+ Set MS = CreateObject("MScripts.UScripts")
+ set dlg=createobject("mdialog.cdialog")
+
+With DLG
+    .Caption = "Выбрать тип ячейки"
+    .FormName = "SDM$IBS_TYPE"
+    .style = 16
+    .cmdCancel.Caption="Отмена"
+    .cmdOk.Caption="Выбрать"
+
+         
+ Set TypeIbsDs = OraEmptyDynaset
+          If Oraexecplsql(False,"begin :TypeIbsDs := gc.sdm$ibs.get_typeibs_list(); end;", "TypeIbsDs", TypeIbsDs, "subj_name", vSubjName) Then
+            If TypeIbsds.RecordCount = 0 Then
+              TypeIbsDs = "0"
+            ElseIf TypeIbsDs.RecordCount>1 Then
+              vSubjDSRef = MS.Obj2Long(TypeIbsDs)
+              Request.Add "SubjDsRef", vSubjDSRef
+
+              Set FFS=CreateObject("MScripts.cUserGridForm")
+              FFS.Init "SDM$IBS$TYPE", Request, "Выбор типа ячейки", false, false, "ID", "OnUpdateComAcc"
+              FFS.AddGridColumn "ID", "Номер", 10, 0
+              FFS.AddGridColumn "CAPTION", "Тип", 10, 0
+              FFS.Show 1
+             
+              Request.Add "SubjDsRef", ""
+
+              If FFS.GetSelectedCount = 1 Then
+                vTypeIbsDs=FFS.GetSelectedItem(0)
+              End If
+            Else
+              TypeIbsDs.MoveFirst
+              vTypeIbsDs= TypeIbsDS.Fields("ID").Value()
+          End If
+          End If
+                
+
+End With
+
+IF vTypeIbsDS = "" Then
+Exit Sub
+Else
+
+  vContinue = False
+
+  Set CD=CreateObject("MDIALOG.CDIALOG")
+  Set CD1=CreateObject("MDIALOG.CDIALOG")
+  Set CD2=CreateObject("MDIALOG.CDIALOG")
+  Set M=CreateObject("MMessages.UMessages")
+
+  'обработка диалоговых форм в зависимости от выбранных значений меняется
+  'Для каждого типа ячейки свой обработчик данных
+IF vTypeIbsDS = 1 then
+  MS.SetBLCHandlers Request, "ChangeProc1", "InitProc", "SaveProc"
+END IF
+IF vTypeIbsDS = 2 then
+  MS.SetBLCHandlers Request, "ChangeProc2", "InitProc", "SaveProc"
+END IF
+IF vTypeIbsDS = 3 then
+  MS.SetBLCHandlers Request, "ChangeProc3", "InitProc", "SaveProc"
+END IF
+IF vTypeIbsDS = 4 then
+  MS.SetBLCHandlers Request, "ChangeProc4", "InitProc", "SaveProc"
+END IF
+
+
+'Поиск клиента для простых ячеек
+IF vTypeIbsDS = 1 or vTypeIbsDS = 2 then
+  With CD
+    .Caption = "Клиент"
+    .FormName = "SDM$IBS_Add01"
+    .style = 16
+    .cmdCancel.Caption="Отмена"
+    .cmdOk.Caption="Установить"	
+
+    With .Group
+      .AddLabel .LabelConstr(True), "ФИО клиента"
+      .AddTextBox .ControlConstr(), "ФИО клиента", "vSubjName", vSubjName, 256, False, 8
+      .AddLabel .LabelConstr(True), "ID клиента"
+      .AddTextBox .ControlConstr(), "ID клиента", "vSubjId", vSubjId, 15, False, 8192
+    End With
+    Do
+      If .Exec() Then
+        vSubjId=.Value("vSubjId")
+        vSubjName=.Value("vSubjName")
+
+        If len(vSubjId)=0 And Len(vSubjName)>0 Then
+          Set SubjDs = OraEmptyDynaset
+          If Oraexecplsql(False,"begin :SubjDs := gc.sdm$ibs.get_subj_list(:subj_name); end;", "SubjDs", SubjDs, "subj_name", vSubjName) Then
+            If SubjDs.RecordCount = 0 Then
+              vSubjId = "0"
+            ElseIf SubjDs.RecordCount>1 Then
+              vSubjDSRef = MS.Obj2Long(SubjDs)
+              Request.Add "SubjDsRef", vSubjDSRef
+
+              Set FFS=CreateObject("MScripts.cUserGridForm")
+              FFS.Init "SDM$IBS$SUBJ", Request, "Список клиентов", false, false, "ID", "OnUpdateComAcc"
+              FFS.AddGridColumn "ID", "Ид. клиента", 10, 0
+              FFS.AddGridColumn "NAME", "ФИО", 10, 0
+              FFS.AddGridColumn "PASSPORT", "Номер документа", 10, 0
+              FFS.AddGridColumn "BIRTHDAY", "Дата рождения", 10, 0
+              FFS.AddGridColumn "INN", "ИНН", 10, 0
+              FFS.Show 1
+
+              Request.Add "SubjDsRef", ""
+
+              If FFS.GetSelectedCount = 1 Then
+                vSubjId=FFS.GetSelectedItem(0)
+              End If
+            Else
+              SubjDs.MoveFirst
+              vSubjId = SubjDs.Fields("ID").Value()
+            End If
+          End If
+        End If
+
+        If vSubjId = "0" Then
+          M.ErrorMsgBox "Не найден клиент с ФИО """ & vSubjName & """!"   
+        ElseIf len(vSubjId)>0 Then
+          Set AccDs = OraEmptyDynaset
+              vContinue = True
+              Exit Do
+        Else
+          M.ErrorMsgBox "Не указаны данные для поиска клиента!"
+        End If
+      Else
+        Exit Do
+      End If
+    Loop
+  End With
+'Поиск клиента для простых ячеек
+End If
+
+'Поиск клиента для ячеек сделок. Ищем двух клиентов
+IF vTypeIbsDS = 3 or vTypeIbsDS = 4 then
+  With CD1
+    .Caption = "Клиент 1"
+    .FormName = "SDM$IBS_Add03"
+    .style = 16
+    .cmdCancel.Caption="Отмена"
+    .cmdOk.Caption="Установить"	
+
+    With .Group
+      .AddLabel .LabelConstr(True), "ФИО клиента 1"
+      .AddTextBox .ControlConstr(), "ФИО клиента 1", "vSubjName", vSubjName, 256, False, 8
+      .AddLabel .LabelConstr(True), "ID клиента 1"
+      .AddTextBox .ControlConstr(), "ID клиента 1", "vSubjId", vSubjId, 15, False, 8192
+    End With
+    Do
+      If .Exec() Then
+        vSubjId=.Value("vSubjId")
+        vSubjName=.Value("vSubjName")
+
+        If len(vSubjId)=0 And Len(vSubjName)>0 Then
+          Set SubjDs = OraEmptyDynaset
+          If Oraexecplsql(False,"begin :SubjDs := gc.sdm$ibs.get_subj_list(:subj_name); end;", "SubjDs", SubjDs, "subj_name", vSubjName) Then
+            If SubjDs.RecordCount = 0 Then
+              vSubjId = "0"
+            ElseIf SubjDs.RecordCount>1 Then
+              vSubjDSRef = MS.Obj2Long(SubjDs)
+              Request.Add "SubjDsRef", vSubjDSRef
+
+              Set FFS=CreateObject("MScripts.cUserGridForm")
+              FFS.Init "SDM$IBS$SUBJ", Request, "Список клиентов", false, false, "ID", "OnUpdateComAcc"
+              FFS.AddGridColumn "ID", "Ид. клиента", 10, 0
+              FFS.AddGridColumn "NAME", "ФИО", 10, 0
+              FFS.AddGridColumn "PASSPORT", "Номер документа", 10, 0
+              FFS.AddGridColumn "BIRTHDAY", "Дата рождения", 10, 0
+              FFS.AddGridColumn "INN", "ИНН", 10, 0
+              FFS.Show 1
+
+              Request.Add "SubjDsRef", ""
+
+              If FFS.GetSelectedCount = 1 Then
+                vSubjId=FFS.GetSelectedItem(0)
+              End If
+            Else
+              SubjDs.MoveFirst
+              vSubjId = SubjDs.Fields("ID").Value()
+            End If
+          End If
+        End If
+
+        If vSubjId = "0" Then
+          M.ErrorMsgBox "Не найден клиент с ФИО """ & vSubjName & """!"   
+        ElseIf len(vSubjId)>0 Then
+          Set AccDs = OraEmptyDynaset
+              vContinue = True
+              Exit Do
+        Else
+          M.ErrorMsgBox "Не указаны данные для поиска клиента!"
+        End If
+      Else
+        Exit Do
+      End If
+    Loop
+  End With
+
+  With CD2
+    .Caption = "Клиент 2"
+    .FormName = "SDM$IBS_Add04"
+    .style = 16
+    .cmdCancel.Caption="Отмена"
+    .cmdOk.Caption="Установить"	
+
+    With .Group
+      .AddLabel .LabelConstr(True), "ФИО клиента 2"
+      .AddTextBox .ControlConstr(), "ФИО клиента 2", "vSubjNameDop", vSubjNameDop, 256, False, 8
+      .AddLabel .LabelConstr(True), "ID клиента 2"
+      .AddTextBox .ControlConstr(), "ID клиента 2", "vSubjIdDop", vSubjIdDop, 15, False, 8192
+    End With
+    Do
+      If .Exec() Then
+        vSubjIdDop=.Value("vSubjIdDop")
+        vSubjNameDop=.Value("vSubjNameDop")
+
+        If len(vSubjIdDop)=0 And Len(vSubjNameDop)>0 Then
+          Set SubjDs = OraEmptyDynaset
+          If Oraexecplsql(False,"begin :SubjDs := gc.sdm$ibs.get_subj_list(:subj_name); end;", "SubjDs", SubjDs, "subj_name", vSubjNameDop) Then
+            If SubjDs.RecordCount = 0 Then
+              vSubjIdDop = "0"
+            ElseIf SubjDs.RecordCount>1 Then
+              vSubjDSRef = MS.Obj2Long(SubjDs)
+              Request.Add "SubjDsRef", vSubjDSRef
+
+              Set FFS=CreateObject("MScripts.cUserGridForm")
+              FFS.Init "SDM$IBS$SUBJ", Request, "Список клиентов", false, false, "ID", "OnUpdateComAcc"
+              FFS.AddGridColumn "ID", "Ид. клиента", 10, 0
+              FFS.AddGridColumn "NAME", "ФИО", 10, 0
+              FFS.AddGridColumn "PASSPORT", "Номер документа", 10, 0
+              FFS.AddGridColumn "BIRTHDAY", "Дата рождения", 10, 0
+              FFS.AddGridColumn "INN", "ИНН", 10, 0
+              FFS.Show 1
+
+              Request.Add "SubjDsRef", ""
+
+              If FFS.GetSelectedCount = 1 Then
+                vSubjIdDop=FFS.GetSelectedItem(0)
+              End If
+            Else
+              SubjDs.MoveFirst
+              vSubjIdDop = SubjDs.Fields("ID").Value()
+            End If
+          End If
+        End If
+
+        If vSubjIdDop = "0" Then
+          M.ErrorMsgBox "Не найден клиент с ФИО """ & vSubjNameDop & """!"   
+        ElseIf len(vSubjIdDop)>0 Then
+          Set AccDs = OraEmptyDynaset
+              vContinue = True
+              Exit Do
+        Else
+          M.ErrorMsgBox "Не указаны данные для поиска клиента!"
+        End If
+      Else
+        Exit Do
+      End If
+    Loop
+  End With
+'Поиск клиента для ячеек сделок. Ищем двух клиентов
+End If
+
+  If vContinue Then
+    Do
+set dlg=createobject("mdialog.cdialog")
+      vContinue = False
+     With DLG
+    .SetEventsHandlers MS, "OnChangeBLC", "OnInitBLC", "OnSaveBLC"
+IF vTypeIbsDS = 1 then
+    .Caption = "Добавление данных по ИБС (простое хранение):"
+END IF
+IF vTypeIbsDS = 2 then
+    .Caption = "Добавление данных по ИБС (ответственное хранение):"
+END IF
+IF vTypeIbsDS = 3 then
+    .Caption = "Добавление данных по ИБС (сделка простое хранение):"
+END IF
+IF vTypeIbsDS = 4 then
+    .Caption = "Добавление данных по ИБС (сделка ответственное хранение):"
+END IF
+    .FormName = "SDM_LIM1"
+
+  With .Group
+
+Datest = Date
+
+ sql = "select 'USER_PARAM3' USER_PARAM3,'USER_PARAM4' USER_PARAM4,'USER_PARAM5' USER_PARAM5,'USER_PARAM6' USER_PARAM6,'USER_PARAM7' USER_PARAM7,'USER_PARAM8' USER_PARAM8,'USER_PARAM9' USER_PARAM9, 'USER_PARAM10' USER_PARAM10,'USER_PARAM11' USER_PARAM11,'USER_PARAM1' USER_PARAM1,'USER_PARAM2' USER_PARAM2,'USER_PARAM13' USER_PARAM13,'USER_PARAM14' USER_PARAM14 from dual"
+        
+        Set ObjDS = OraExecSQL(false, sql, ORADYN_DEFAULT, "SUBJID", CStr(SUBJID))
+
+IF vTypeIbsDS = 3 or vTypeIbsDS = 4 then	
+#sql_smt{SELECT S.NAME INTO :vSubjName FROM GC.SUBJ S WHERE S.ID = :vSubjId;}
+#sql_smt{SELECT S.NAME INTO :vSubjNameDop FROM GC.SUBJ S WHERE S.ID = :vSubjIdDop;}
+   .AddLabel         .LabelConstr()     , "ФИО Арендатора 1"
+   .AddTextBox       .ControlConstr()   , "ФИО Арендатора 1", "FIO1", vSubjName, 100, False, 0 or 2048
+   .AddLabel         .LabelConstr()     , "ФИО Арендатора 2"
+   .AddTextBox       .ControlConstr()   , "ФИО Арендатора 2", "FIO2", vSubjNameDop, 100, False, 0 or 2048
+   .AddLabel         .LabelConstr()     , "ID Клиента 1"
+   .AddTextBox       .ControlConstr()   , "ID Клиента 1", "ID_CLIENT1", vSubjId, 12, False, 0 or 2048
+   .AddLabel         .LabelConstr()     , "ID Клиента 2"
+   .AddTextBox       .ControlConstr()   , "ID Клиента 2", "ID_CLIENT2", vSubjIdDop, 12, False, 0 or 2048
+END IF
+
+IF vTypeIbsDS = 1 or vTypeIbsDS = 2 then	
+#sql_smt{SELECT S.NAME INTO :vSubjName FROM GC.SUBJ S WHERE S.ID = :vSubjId;}
+   .AddLabel         .LabelConstr()     , "ФИО Арендатора"
+   .AddTextBox       .ControlConstr()   , "ФИО Арендатора", "FIO1", vSubjName, 100, False, 0 or 2048
+   .AddLabel         .LabelConstr()     , "ID Клиента"
+   .AddTextBox       .ControlConstr()   , "ID Клиента", "ID_CLIENT1", vSubjId, 12, False, 0 or 2048
+END IF
+
+
+#sql_smt{:vId:=gc.objid.nextval;}
+
+   .AddLabel         .LabelConstr()     , "Номер договора ИБС"
+   .AddTextBox       .ControlConstr(0, True), "Номер договора ИБС", "USER_PARAM1", vId, 13, False, 2048
+'  .AddTextBox       .ControlConstr(0, False)   , "", "USER_PARAM111", "/", 1, False, 131072 or 65536 or 2048 or 0
+'  .AddTextBox       .ControlConstr(0, True)   , "", "USER_PARAM222", "#########", 9, False, 8192 or 131072 or 0
+
+
+
+
+   .AddLabel        .LabelConstr(False) , "Номер банковского сейфа"
+   .AddTextBox      .ControlConstr()    , "Номер банковского сейфа", "USER_PARAM2", "", 2000, False, 0
+
+    Set fhh = OraFieldsHelper(ObjDS)
+    Sql = "select value1 Caption,ID ID from gc.sprav$values where id_type = '2403695879' and value2 = decode(gc.user_login.otdel_id,null,'382','1247202','0','1373255','0',gc.user_login.otdel_id)"
+    Set mon = OraExecSQL(False, Sql, ORADYN_DEFAULT)
+   .AddLabel        .LabelConstr(False) , "Размер банковской ячейки"	
+   .AddComboBoxData .ControlConstr()    , "Размер", "USER_PARAM3", fhh("USER_PARAM3"), mon, 1, , 1	
+
+	
+        Set fh = OraFieldsHelper(ObjDS)
+      	Sql = "select VALUE1 Caption,ID ID from gc.sprav$values where id_type = '2445645815'" 
+      	Set place= OraExecSQL(False, Sql, ORADYN_DEFAULT)
+	.AddLabel .LabelConstr(False), "Местонахождение сейфа"	
+'	.AddComboBoxData .ControlConstr(), "Место", "USER_PARAM4", fh("USER_PARAM4"), place, 1, , 1	
+
+#sql_smt{
+select value1 
+into :Mesto
+  from gc.sprav$values 
+ where 1=1
+   and id_type = '2445645815' 
+   and value3 = gc.user_login.otdel_id
+union all
+select value1 
+  from gc.sprav$values 
+ where 1=1
+   and id_type = '2445645815' 
+   and value2 = gc.user_login.otdel_id
+union all
+select value1 
+  from gc.sprav$values 
+ where 1=1
+   and id_type = '2445645815' 
+   and value2 = nvl(gc.user_login.otdel_id,'382')
+   and value3 is null;
+}
+      .AddTextBox .ControlConstr() , "Место", "USER_PARAM4", Mesto, 2000, False, 2048
+
+
+ IF vTypeIbsDS = 1 or vTypeIbsDS = 3 then	
+        Set fhhh = OraFieldsHelper(ObjDS)
+      	Sql = "select value1 Caption,ID ID from gc.sprav$values where id_type = '2470125652'"
+      	Set price= OraExecSQL(False, Sql, ORADYN_DEFAULT)
+	.AddLabel .LabelConstr(False), "Стоимость залога за ключ"
+	.AddComboBoxData .ControlConstr(), "Цена", "USER_PARAM5", fhhh("USER_PARAM5"), price, 1, , 1	
+ END IF
+
+ IF vTypeIbsDS = 2 or vTypeIbsDS = 4 then	
+        Set fhhh = OraFieldsHelper(ObjDS)
+      	Sql = "select value1 Caption,ID ID from gc.sprav$values where id_type = '2470125652' and value2 is null"
+      	Set price= OraExecSQL(False, Sql, ORADYN_DEFAULT)
+	.AddLabel .LabelConstr(False), "Стоимость залога за ключ"
+	.AddComboBoxData .ControlConstr(), "Цена", "USER_PARAM5", fhhh("USER_PARAM5"), price, 1, , 1	
+ END IF
+
+IF vTypeIbsDS = 3 or vTypeIbsDS = 4 then	
+        Set deal = OraFieldsHelper(ObjDS)
+      	Sql = "select sv.value2||' (ГО - '||sv.value3||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and gc.user_login.otdel_id is null and s.id = sv.id_type and sv.value1 = '1'"
+      	Sql = Sql & " union all select sv.value2||' (Отделения - '||sv.value4||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and gc.user_login.otdel_id in ('1247202','1373255') and sv.value1 = '1'"
+            Sql = Sql & " union all select sv.value2||' (Филиалы - '||sv.value5||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and gc.user_login.otdel_id is not null and gc.user_login.otdel_id not in ('1247202','1373255') and sv.value1 = '1'"
+      	Sql = Sql & " union all select sv.value2||' (ГО - '||sv.value3||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and gc.user_login.otdel_id is null and s.id = sv.id_type and sv.value1 = '2'"
+      	Sql = Sql & " union all select sv.value2||' (Отделения - '||sv.value4||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and gc.user_login.otdel_id in ('1247202','1373255') and sv.value1 = '2'"
+            Sql = Sql & " union all select sv.value2||' (Филиалы - '||sv.value5||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and gc.user_login.otdel_id is not null and gc.user_login.otdel_id not in ('1247202','1373255') and sv.value1 = '2'"
+      	Sql = Sql & " union all select sv.value2||' (ГО - '||sv.value3||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and gc.user_login.otdel_id is null and s.id = sv.id_type and sv.value1 = '3'"
+      	Sql = Sql & " union all select sv.value2||' (Отделения - '||sv.value4||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and gc.user_login.otdel_id in ('1247202','1373255') and sv.value1 = '3'"
+            Sql = Sql & " union all select sv.value2||' (Филиалы - '||sv.value5||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and gc.user_login.otdel_id is not null and gc.user_login.otdel_id not in ('1247202','1373255') and sv.value1 = '3'"
+      	Set ibsdeal= OraExecSQL(False, Sql, ORADYN_DEFAULT)
+	.AddLabel .LabelConstr(), "Оформление и исполнение договора"
+      .AddLabel .LabelConstr(False), "с дополнительными условиями доступа"
+	.AddComboBoxData .ControlConstr(), "Тип", "USER_PARAM11", deal("USER_PARAM11"), ibsdeal, 1, , 1	
+END IF
+
+    .AddLabel .LabelConstr(True), "             Период действия ячейки"
+        .AddLabel .LabelConstr(), "Дата открытия"
+        .AddDateTimePicker2 .ControlConstr(0,True) , "Дата открытия", "USER_PARAM7", "dd-mm-yyyy",Datest, date_open,,1,,1
+'Set MonthBox = .AddOptionButton(.ControlConstr(0,False), "PERIOD", "PERIOD", "По календарю", 0)
+Set WeekBox = .AddOptionButton(.ControlConstr(0,False), "PERIOD_WEEK", "PERIOD_WEEK", "В неделях", 0)
+Set PeriodBox = .AddOptionButton(.ControlConstr(0,False), "PERIOD_MONTH", "PERIOD_MONTH", "В месяцах", 0)
+'Set GrpMonthBox = .AddGroup(.ControlConstr(1,True),0)
+'With GrpMonthBox 
+
+'        .AddLabel .LabelConstr(), "Дата закрытия"
+'        .AddDateTimePicker2 .ControlConstr(0,False) , "Дата закрытия", "USER_PARAM8", "dd-mm-yyyy","", date_close,,0
+'End With
+'MonthBox.LinkValue GrpMonthBox, "Visible"
+Set GrpWeekBox = .AddGroup(.ControlConstr(1,True),0)
+With GrpWeekBox 
+        .AddLabel .LabelConstr(), "Количество недель"
+        .AddComboBoxArray .ControlConstr(0,False) , "Количество недель", "PERIODWEEK_IBS", "","1,1;2,2", date_close,,0
+End With
+WeekBox.LinkValue GrpWeekBox, "Visible"
+
+
+Set GrpPeriodBox = .AddGroup(.ControlConstr(1,True),0)
+With GrpPeriodBox 
+        .AddLabel .LabelConstr(False), "                                                                     Количество месяцев"
+        .AddTextBox .ControlConstr(0, False)   , "Количество месяцев (число)", "PERIOD_IBS", "", 2, False, 8192 or 131072
+End With
+PeriodBox.LinkValue GrpPeriodBox, "Visible"
+
+
+
+
+Set GrpProlong = .AddGroup(.ControlConstr(1,True),0)
+With GrpProlong 
+.AddLabel .LabelConstr(True), "___________________________________________________"
+.AddLabel .LabelConstr(True), "Пролонгация"
+.AddOptionButton .ControlConstr(0,False), "PROLONG", "PROLONG", "Есть", 0
+.AddOptionButton .ControlConstr(0,True), "NO_PROLONG", "NO_PROLONG", "Нет", 0
+.AddLabel .LabelConstr(True), "___________________________________________________"
+End With
+
+        Set chkBox = .AddCheckBox(.ControlConstr(4, True), "UPD", "UPD", "ОПЛАТА БЕЗНАЛИЧНЫМ СПОСОБОМ", 0)
+         set GrpBox = .AddGroup(.ControlConstr(1, True), 0)
+         with GrpBox 
+         Set fhs = OraFieldsHelper(ObjDS)       
+IF vTypeIbsDS = 3 or vTypeIbsDS = 4 then
+  sql = "select gc.nns.get(d.s,d.cur)||' - '||s.name Caption, gc.nns.get(d.s,d.cur) ID from gc.dog d,gc.acc a,gc.plan p,gc.subj s where d.s = a.s and d.cur = a.cur and a.bs = p.bs and p.ps = '003' and s.id = d.subj_id and d.cur = '810' and nvl(p.period,0) = 0 and d.subj_id in (" & vSubjId&","&vSubjIdDop&")"
+END IF
+IF vTypeIbsDS = 1 or vTypeIbsDS = 2 then
+  sql = "select gc.nns.get(d.s,d.cur)||' - '||s.name Caption, gc.nns.get(d.s,d.cur) ID from gc.dog d,gc.acc a,gc.plan p,gc.subj s where d.s = a.s and d.cur = a.cur and a.bs = p.bs and p.ps = '003' and s.id = d.subj_id and d.cur = '810' and nvl(p.period,0) = 0 and d.subj_id = " & vSubjId
+END IF
+      	Set nns= OraExecSQL(False, Sql, ORADYN_DEFAULT)
+	.AddLabel .LabelConstr(True), "номер счета для списания аренды сейфа  и залога за ключ" 
+	.AddComboBoxData .ControlConstr(), "Счет", "USER_PARAM6", fhs("USER_PARAM6"), nns, false," ", 1
+         End With
+
+chkBox.LinkValue GrpBox, "Visible"  
+
+
+'IF vTypeIbsDS = 2 or vTypeIbsDS = 4 then
+'        .AddLabel .LabelConstr(), "Сумма хранения"
+'        .AddNumberBox .ControlConstr(0, True)   , "", "SUMMA_OTV", "0", 3,2
+'END IF
+
+
+        Set tel = OraFieldsHelper(ObjDS)
+      	Sql = "select num Caption,num ID from gc.phone where device_type = 0 and subj_id = " & vSubjId
+      	Set telefon = OraExecSQL(False, Sql, ORADYN_DEFAULT)
+	.AddLabel .LabelConstr(False), "Контактные данные. Телефон"	
+IF vTypeIbsDS = 3 or vTypeIbsDS = 4 then
+	.AddLabel .LabelConstr(False), vSubjName
+END IF
+	.AddComboBoxData .ControlConstr(), "Телефон", "USER_PARAM9", fhhh("USER_PARAM9"), telefon, true, , 1	
+
+        Set mail = OraFieldsHelper(ObjDS)
+      	Sql = "select num Caption,num ID from gc.phone where device_type = 4 and subj_id = " & vSubjId
+      	Set email = OraExecSQL(False, Sql, ORADYN_DEFAULT)
+	.AddLabel .LabelConstr(False), "Контактные данные. Email"	
+IF vTypeIbsDS = 3 or vTypeIbsDS = 4 then
+	.AddLabel .LabelConstr(False), vSubjName
+END IF
+	.AddComboBoxData .ControlConstr(), "Email", "USER_PARAM10", fhhh("USER_PARAM10"), email, true, , 1	
+
+IF vTypeIbsDS = 3 or vTypeIbsDS = 4 then
+
+        Set tel = OraFieldsHelper(ObjDS)
+      	Sql = "select num Caption,num ID from gc.phone where device_type = 0 and subj_id = " & vSubjIdDop
+      	Set telefon = OraExecSQL(False, Sql, ORADYN_DEFAULT)
+	.AddLabel .LabelConstr(False), "Контактные данные. Телефон"	
+	.AddLabel .LabelConstr(False), vSubjNameDop
+	.AddComboBoxData .ControlConstr(), "Телефон", "USER_PARAM13", fhhh("USER_PARAM13"), telefon, true, , 1	
+
+        Set mail = OraFieldsHelper(ObjDS)
+      	Sql = "select num Caption,num ID from gc.phone where device_type = 4 and subj_id = " & vSubjIdDop
+      	Set email = OraExecSQL(False, Sql, ORADYN_DEFAULT)
+	.AddLabel .LabelConstr(False), "Контактные данные. Email"	
+	.AddLabel .LabelConstr(False), vSubjNameDop
+	.AddComboBoxData .ControlConstr(), "Email", "USER_PARAM14", fhhh("USER_PARAM14"), email, true, , 1	
+END IF
+       	
+End with
+
+	If Not .Exec Then Exit Sub
+USER_PARAM1= .Value("USER_PARAM1")
+USER_PARAM2= .Value("USER_PARAM2")
+USER_PARAM3= .Value("USER_PARAM3")
+USER_PARAM4= .Value("USER_PARAM4")
+USER_PARAM5= .Value("USER_PARAM5")
+IF ISNULL(.Value("USER_PARAM6")) then 
+USER_PARAM6= "0"
+ELSE 
+USER_PARAM6= .Value("USER_PARAM6") 
+end if
+USER_PARAM7= .Value("USER_PARAM7")
+IF ISNULL(.Value("USER_PARAM9")) then 
+USER_PARAM9= ""
+ELSE 
+USER_PARAM9= .Value("USER_PARAM9") 
+end if
+IF ISNULL(.Value("USER_PARAM10")) then 
+USER_PARAM10= ""
+ELSE 
+USER_PARAM10= .Value("USER_PARAM10") 
+end if
+
+IF vTypeIbsDS = 3 or vTypeIbsDS = 4 then
+IF ISNULL(.Value("USER_PARAM13")) then 
+USER_PARAM13= ""
+ELSE 
+USER_PARAM13= .Value("USER_PARAM13") 
+end if
+
+IF ISNULL(.Value("USER_PARAM14")) then 
+USER_PARAM14= ""
+ELSE 
+USER_PARAM14= .Value("USER_PARAM14") 
+end if
+END IF
+
+'IF vTypeIbsDS = 2 or vTypeIbsDS = 4 then	
+'SUMMA_OTV=.Value("SUMMA_OTV")
+'END IF
+'IF vTypeIbsDS = 1 or vTypeIbsDS = 3 then	
+'SUMMA_OTV=0
+'END IF
+PERIOD_IBS = .Value("PERIOD_IBS")
+PERIODWEEK_IBS = .Value("PERIODWEEK_IBS")
+IF vTypeIbsDS = 3 or vTypeIbsDS = 4 then	
+USER_PARAM11 = .Value("USER_PARAM11")
+END IF
+PERIOD_WEEK= .Value("PERIOD_WEEK")
+PERIOD_MONTH = .Value("PERIOD_MONTH")
+PROLONG =.Value("PROLONG")
+NO_PROLONG =.Value("NO_PROLONG")
+
+'Передаем в процедуру открытия тип периода, и интервал. Дата закрытия начитывается в процедуре gc.sdm$ibs.add_ibs
+IF (PERIOD_WEEK = "True" or PERIOD_WEEK = "Истина") THEN
+PERIOD_TYPE = "WEEK"
+PERIOD_INT = PERIODWEEK_IBS
+ELSE
+PERIOD_TYPE = "MONTH"
+PERIOD_INT = PERIOD_IBS
+END IF
+
+IF (PROLONG = "True" or PROLONG = "Истина") THEN
+PROLONG_TYPE = "1"
+ELSE
+PROLONG_TYPE = "0"
+END IF
+
+
+rem USER_PARAM1 Номер договора ИБС
+rem USER_PARAM2 Номер банковского сейфа
+rem USER_PARAM3 Размер банковской йчейки
+rem USER_PARAM4 Местонахождение
+rem USER_PARAM5 Стоимость залога за ключ
+rem USER_PARAM6 Счет для списания залога и аренды
+rem USER_PARAM7 Дата открытия
+rem USER_PARAM8 Дата закрытия
+rem USER_PARAM9 Телефон
+rem USER_PARAM10 Почта
+
+'Проверка отделения, в которой открыта ячейка и период (неделя/месяц)
+'Ячейки в ГО открываются минимум  на месяц
+#sql_smt{
+    SELECT CASE WHEN SV.VALUE1 LIKE '%ЦЕНТРАЛЬНЫЙ%' THEN '1'
+                ELSE '0' END  
+           INTO :PROV_OTD_PERIOD
+          FROM GC.SPRAV$VALUES SV
+         WHERE 1=1
+           AND SV.ID = :USER_PARAM3;
+}
+
+#sql_smt{
+SELECT ID 
+INTO :USER_PARAM4
+  FROM GC.SPRAV$VALUES
+ WHERE 1=1
+   AND ID_TYPE = '2445645815'
+   AND VALUE1 = :USER_PARAM4;        
+}
+
+IF (PROLONG = "False" or PROLONG = "Ложь") and (NO_PROLONG = "False" or NO_PROLONG = "Ложь") THEN
+M.ErrorMsgBox "Не выбран параметр пролонгации"
+ELSE
+
+IF PERIOD_INT = "0" THEN
+M.ErrorMsgBox "Некорректное количество периодов"
+ELSE
+
+IF PROV_OTD_PERIOD = "1" and (PERIOD_WEEK = "True" or PERIOD_WEEK = "Истина") THEN
+M.ErrorMsgBox "Ячейка в центральном офисе открывается минимум на месяц. Период в неделях невозможен"
+ELSE
+
+IF vTypeIbsDS = 2 or vTypeIbsDS = 4 then	
+set dlg=createobject("mdialog.cdialog")
+
+     With DLG
+    .Caption = "Сумма"
+    .FormName = "Сумма ответственного хранения"
+
+With .Group
+
+        .AddLabel        .LabelConstr(False) , "Сумма в рублях"
+        .AddNumberBox .ControlConstr(0, True)   , "", "SUMMA_OTV_RUB", 0, 3,2
+        .AddLabel        .LabelConstr(False) , "Сумма в долларах"
+        .AddNumberBox .ControlConstr(0, True)   , "", "SUMMA_OTV_USD", 0, 3,2
+        .AddLabel        .LabelConstr(False) , "Сумма в евро"
+        .AddNumberBox .ControlConstr(0, True)   , "", "SUMMA_OTV_EUR", 0, 3,2
+        .AddLabel        .LabelConstr(False) , "Сумма в юанях"
+        .AddNumberBox .ControlConstr(0, True)   , "", "SUMMA_OTV_CNY", 0, 3,2
+End with
+
+	If Not .Exec Then Exit Sub
+SUMMA_OTV_RUB = .Value("SUMMA_OTV_RUB")
+SUMMA_OTV_USD = .Value("SUMMA_OTV_USD")
+SUMMA_OTV_EUR = .Value("SUMMA_OTV_EUR")
+SUMMA_OTV_CNY = .Value("SUMMA_OTV_CNY")
+End With
+END IF
+
+
+#sql_smt{
+begin 
+gc.sdm$ibs.add_ibs(:USER_PARAM1,:vSUBJID,:USER_PARAM1,:USER_PARAM2,:USER_PARAM3,:USER_PARAM4,:USER_PARAM5,:USER_PARAM6,TO_DATE(:USER_PARAM7,'DD/MM/YYYY'),:PERIOD_TYPE,:PERIOD_INT,NVL(:USER_PARAM9,''),nvl(:USER_PARAM10,''),NVL(:USER_PARAM13,''),NVL(:USER_PARAM14,''),:vTypeIbsDS,:vSubjIdDop,:USER_PARAM11,:PROLONG_TYPE); 
+
+IF :vTypeIbsDS IN ('2','4') THEN
+
+IF :SUMMA_OTV_RUB > 0 THEN 
+INSERT INTO GC.SDM$IBS_OTV
+SELECT :USER_PARAM1,'810',:SUMMA_OTV_RUB FROM DUAL;
+END IF;
+IF :SUMMA_OTV_USD > 0 THEN 
+INSERT INTO GC.SDM$IBS_OTV
+SELECT :USER_PARAM1,'840',:SUMMA_OTV_USD FROM DUAL;
+END IF;
+IF :SUMMA_OTV_EUR > 0 THEN 
+INSERT INTO GC.SDM$IBS_OTV
+SELECT :USER_PARAM1,'978',:SUMMA_OTV_EUR FROM DUAL;
+END IF;
+IF :SUMMA_OTV_CNY > 0 THEN 
+INSERT INTO GC.SDM$IBS_OTV
+SELECT :USER_PARAM1,'156',:SUMMA_OTV_CNY FROM DUAL;
+END IF;
+
+END IF;
+end;
+}
+END IF
+END IF
+END IF
+
+          vSql="begin :vUnp := gc.SDM$IBS.VNEB_KEY_CREATE_DOC(:USER_PARAM1,'OPEN',null); end;"
+          If OraExecPLSQL(False, vSql, "USER_PARAM1",USER_PARAM1,"vUNP",vUNP) Then
+            Set MDoc = CreateObject("MDocum.UDocum")
+            If MDoc.AskConfirmDocs(vUnp,"Сформировать пачку документов?") Then
+              #sql_smt{ gc.p_support.arm_start(); commit;
+                         gc.jour_pack.add_to_journal('SDMIBS',:USER_PARAM1,'SDMIBS_DOCUM','K','','UNP-'||:vUnp||' Проводка по внебалансу (Открытие)');
+                       insert into gc.sdm$ibs_docum
+                       select :USER_PARAM1,:vUnp,'Проводка по внебалансу (Открытие)' from dual;
+                       commit;
+                       }
+            Else
+            #sql_smt{ gc.p_support.arm_start(); rollback; }
+            End If
+          End If
+
+
+
+
+
+rem Set M=CreateObject("MMessages.UMessages")
+rem If M.YesNoMsgBox("Данные сохранены, открыть новую ячейку?")=vbYes Then
+Exit Do
+rem End if
+
+End with
+Loop
+
+End If
+
+End If
+
+
+End Sub
+
+
+'обработчик изменений на форме для ячеек с типом ПРОСТОЕ ХРАНЕНИЕ
+'Если меняется размер, то начитываем новые значения местоположения
+'Если меняется размер, то начитываем новые значения стоимости залога за ключ
+
+
+Function InitProc()
+  'Установим в списке филиалов значение ГО
+'  Ctrls.Control("USER_PARAM2").Value="111"
+Request.Add "USER_PARAM2", "111"
+  InitProc=true
+end Function
+
+
+Function ChangeProc1()
+
+
+  'если изменился размер банковской ячейки
+'  if Ctrl.Name="USER_PARAM3" then
+    'получаем новое значение местоположения ячейки
+'    FID=Ctrl.Value & ""
+'msgbox FID
+    'получаем новый список возможных местоположения для выбранного размера ячейки
+'    Set o_ds = #sql_cur{select sv2.VALUE1 Caption,sv2.ID ID from gc.sprav$values sv
+'                                ,gc.sprav$values sv2
+'                          where sv.id_type = '2403695879' --Размер банковской ячейки
+'                            and sv.id = :FID --Значение, которое задал пользователь в фильтре из справочника размеров
+'                            and (sv.value2 = sv2.value2 and sv2.value3 is null and sv2.value2 = '382'
+'                            or (sv.value2 = sv2.value2 and sv2.value3 is null)
+'                            or (sv.value2 = 0 and sv2.value3 in ('1373255','1247202'))
+'                            or (sv.value2 = sv2.value3))
+'                            and sv2.id_type = '2445645815' --Местоположение. То которое соответсвует размеру
+'                               }
+    'очищаем список отделений на форме
+'    Ctrls.Control("USER_PARAM4").Remove ""
+    'добавляем пустое значение (только для списков с необязательным выбором значения)
+'    Ctrls.Control("USER_PARAM4").AddValue "", ""
+    'заполняем список полученными из БД данными
+'    o_ds.MoveFirst
+'    Do While Not o_ds.EOF
+'            vID=o_ds("Id").Value
+'            vCap=o_ds("Caption").Value
+'            Ctrls.Control("USER_PARAM4").AddValue vID, vCap
+'            o_ds.MoveNext
+'        Loop
+'  end if
+
+IF Ctrl.Name="USER_PARAM2" then
+FID=Ctrl.Value & ""
+msgbox FID
+END IF
+
+IF Ctrl.Name="ButtonCheckAml" then
+msgbox "yes"
+END IF
+
+
+  if Ctrl.Name="USER_PARAM3" then
+    'если изменился размер банковской ячейки
+    FID=Ctrl.Value & ""
+    'получаем новый список стоимости залога за ключ
+    Set o_ds = #sql_cur{select sv2.VALUE1 Caption,sv2.ID ID from gc.sprav$values sv
+                                      ,gc.sprav$values sv2 
+                          where sv.id_type = '2403695879' --Размер банковской ячейки
+                            and sv.id = :FID --Значение, которое задал пользователь в фильтре из справочника размеров
+                            and sv2.id_type = '2470125652' --справочник залогов
+                            and sv2.value2 = case when sv.value1 like '%ЦЕНТРАЛЬНЫЙ%' then 'Головной банк'
+                                     when sv.value1 like '%ОТДЕЛЕНИЯ%' then 'Отделения'
+                                     else 'Филиалы'
+                                     end  
+                               }
+    'очищаем список отделений на форме
+    Ctrls.Control("USER_PARAM5").Remove ""
+    'добавляем пустое значение (только для списков с необязательным выбором значения)
+    Ctrls.Control("USER_PARAM5").AddValue "", ""
+    'заполняем список полученными из БД данными
+    o_ds.MoveFirst
+    Do While Not o_ds.EOF
+            vID=o_ds("Id").Value
+            vCap=o_ds("Caption").Value
+            Ctrls.Control("USER_PARAM5").AddValue vID, vCap
+            o_ds.MoveNext
+        Loop
+  end if
+
+  'Обработка изменений успешна
+  ChangeProc1=True
+end Function
+
+
+
+'обработчик изменений на форме для ячеек с типом ОТВЕТСТВЕННОЕ ХРАНЕНИЕ
+'Если меняется размер, то начитываем новые значения местоположения
+Function ChangeProc2()
+  'если изменился размер банковской ячейки
+'  if Ctrl.Name="USER_PARAM3" then
+    'получаем новое значение местоположения ячейки
+'    FID=Ctrl.Value & ""
+'msgbox FID
+    'получаем новый список возможных местоположения для выбранного размера ячейки
+'    Set o_ds = #sql_cur{select sv2.VALUE1 Caption,sv2.ID ID from gc.sprav$values sv
+'                                ,gc.sprav$values sv2
+'                          where sv.id_type = '2403695879' --Размер банковской ячейки
+'                            and sv.id = :FID --Значение, которое задал пользователь в фильтре из справочника размеров
+'                            and (sv.value2 = sv2.value2 and sv2.value3 is null and sv2.value2 = '382'
+'                            or (sv.value2 = sv2.value2 and sv2.value3 is null)
+'                            or (sv.value2 = 0 and sv2.value3 in ('1373255','1247202'))
+'                            or (sv.value2 = sv2.value3))
+'                            and sv2.id_type = '2445645815' --Местоположение. То которое соответсвует размеру
+'                               }
+    'очищаем список отделений на форме
+'    Ctrls.Control("USER_PARAM4").Remove ""
+    'добавляем пустое значение (только для списков с необязательным выбором значения)
+'    Ctrls.Control("USER_PARAM4").AddValue "", ""
+    'заполняем список полученными из БД данными
+'    o_ds.MoveFirst
+'    Do While Not o_ds.EOF
+'            vID=o_ds("Id").Value
+'            vCap=o_ds("Caption").Value
+'            Ctrls.Control("USER_PARAM4").AddValue vID, vCap
+'            o_ds.MoveNext
+'        Loop
+'  end if
+
+    'Обработка изменений успешна
+  ChangeProc2=True
+end Function
+
+'обработчик изменений на форме для ячеек с типом СДЕЛКА ПРОСТОЕ ХРАНЕНИЕ
+'Если меняется размер, то начитываем новые значения местоположения
+'Если меняется размер, то начитываем новые значения стоимости залога за ключ
+'Если меняется размер, то начитываем новые типы сделок
+
+Function ChangeProc3()
+  'если изменился размер банковской ячейки
+'  if Ctrl.Name="USER_PARAM3" then
+    'получаем новое значение местоположения ячейки
+'    FID=Ctrl.Value & ""
+'msgbox FID
+    'получаем новый список возможных местоположения для выбранного размера ячейки
+'    Set o_ds = #sql_cur{select sv2.VALUE1 Caption,sv2.ID ID from gc.sprav$values sv
+'                                ,gc.sprav$values sv2
+'                          where sv.id_type = '2403695879' --Размер банковской ячейки
+'                            and sv.id = :FID --Значение, которое задал пользователь в фильтре из справочника размеров
+'                            and (sv.value2 = sv2.value2 and sv2.value3 is null and sv2.value2 = '382'
+'                            or (sv.value2 = sv2.value2 and sv2.value3 is null)
+'                            or (sv.value2 = 0 and sv2.value3 in ('1373255','1247202'))
+'                            or (sv.value2 = sv2.value3))
+'                            and sv2.id_type = '2445645815' --Местоположение. То которое соответсвует размеру
+'                               }
+    'очищаем список отделений на форме
+'    Ctrls.Control("USER_PARAM4").Remove ""
+    'добавляем пустое значение (только для списков с необязательным выбором значения)
+'    Ctrls.Control("USER_PARAM4").AddValue "", ""
+    'заполняем список полученными из БД данными
+'    o_ds.MoveFirst
+'    Do While Not o_ds.EOF
+'            vID=o_ds("Id").Value
+'            vCap=o_ds("Caption").Value
+'            Ctrls.Control("USER_PARAM4").AddValue vID, vCap
+'            o_ds.MoveNext
+'        Loop
+'  end if  
+
+
+if Ctrl.Name="USER_PARAM3" then
+    'если изменился размер банковской ячейки
+    FID=Ctrl.Value & ""
+    'получаем новый список стоимости залога за ключ
+    Set o_ds = #sql_cur{select sv2.VALUE1 Caption,sv2.ID ID from gc.sprav$values sv
+                                      ,gc.sprav$values sv2 
+                          where sv.id_type = '2403695879' --Размер банковской ячейки
+                            and sv.id = :FID --Значение, которое задал пользователь в фильтре из справочника размеров
+                            and sv2.id_type = '2470125652' --справочник залогов
+                            and sv2.value2 = case when sv.value1 like '%ЦЕНТРАЛЬНЫЙ%' then 'Головной банк'
+                                     when sv.value1 like '%ОТДЕЛЕНИЯ%' then 'Отделения'
+                                     else 'Филиалы'
+                                     end  
+                               }
+    'очищаем список отделений на форме
+    Ctrls.Control("USER_PARAM5").Remove ""
+    'добавляем пустое значение (только для списков с необязательным выбором значения)
+    Ctrls.Control("USER_PARAM5").AddValue "", ""
+    'заполняем список полученными из БД данными
+    o_ds.MoveFirst
+    Do While Not o_ds.EOF
+            vID=o_ds("Id").Value
+            vCap=o_ds("Caption").Value
+            Ctrls.Control("USER_PARAM5").AddValue vID, vCap
+            o_ds.MoveNext
+        Loop
+  end if
+
+if Ctrl.Name="USER_PARAM3" then
+    'если изменился размер банковской ячейки
+    FID=Ctrl.Value & ""
+    #sql_smt{SELECT CASE WHEN VALUE1 LIKE '%ЦЕНТРАЛЬНЫЙ%' THEN 'ГО'
+                         WHEN VALUE1 LIKE '%ОТДЕЛЕНИЯ%' THEN 'ОТД'
+                         ELSE 'ФИЛ'
+                         END
+                        INTO :FIL_OTD
+                  FROM GC.SPRAV$VALUES 
+           WHERE ID = :FID;}
+
+    'получаем новый список типов сделок
+
+IF FIL_OTD = "ГО" THEN
+    Set o_ds = #sql_cur{
+select sv.value2||' (ГО - '||sv.value3||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and sv.value1 = '1'
+union all
+select sv.value2||' (ГО - '||sv.value3||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and sv.value1 = '2'
+union all
+select sv.value2||' (ГО - '||sv.value3||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and sv.value1 = '3'
+}
+END IF 
+IF FIL_OTD = "ОТД" THEN
+    Set o_ds = #sql_cur{
+select sv.value2||' (Отделения - '||sv.value4||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and sv.value1 = '1'
+union all
+select sv.value2||' (Отделения - '||sv.value4||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and sv.value1 = '2'
+union all
+select sv.value2||' (Отделения - '||sv.value4||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and sv.value1 = '3'
+}
+END IF
+IF FIL_OTD = "ФИЛ" THEN
+    Set o_ds = #sql_cur{
+select sv.value2||' (Филиалы - '||sv.value5||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and sv.value1 = '1'
+union all
+select sv.value2||' (Филиалы - '||sv.value5||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and sv.value1 = '2'
+union all
+select sv.value2||' (Филиалы - '||sv.value5||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and sv.value1 = '3'
+}
+END IF
+                               
+    'очищаем список отделений на форме
+    Ctrls.Control("USER_PARAM11").Remove ""
+    'добавляем пустое значение (только для списков с необязательным выбором значения)
+    Ctrls.Control("USER_PARAM11").AddValue "", ""
+    'заполняем список полученными из БД данными
+    o_ds.MoveFirst
+    Do While Not o_ds.EOF
+            vID=o_ds("Id").Value
+            vCap=o_ds("Caption").Value
+            Ctrls.Control("USER_PARAM11").AddValue vID, vCap
+            o_ds.MoveNext
+        Loop
+  end if
+
+
+  'Обработка изменений успешна
+  ChangeProc3=True
+end Function
+
+
+
+'обработчик изменений на форме для ячеек с типом СДЕЛКА ОТВЕТСТВЕННОЕ ХРАНЕНИЕ
+'Если меняется размер, то начитываем новые значения местоположения
+'Если меняется размер, то начитываем новые типы сделок
+Function ChangeProc4()
+  'если изменился размер банковской ячейки
+'  if Ctrl.Name="USER_PARAM3" then
+    'получаем новое значение местоположения ячейки
+'    FID=Ctrl.Value & ""
+'msgbox FID
+    'получаем новый список возможных местоположения для выбранного размера ячейки
+'    Set o_ds = #sql_cur{select sv2.VALUE1 Caption,sv2.ID ID from gc.sprav$values sv
+'                                ,gc.sprav$values sv2
+'                          where sv.id_type = '2403695879' --Размер банковской ячейки
+'                            and sv.id = :FID --Значение, которое задал пользователь в фильтре из справочника размеров
+'                            and (sv.value2 = sv2.value2 and sv2.value3 is null and sv2.value2 = '382'
+'                            or (sv.value2 = sv2.value2 and sv2.value3 is null)
+'                            or (sv.value2 = 0 and sv2.value3 in ('1373255','1247202'))
+'                            or (sv.value2 = sv2.value3))
+'                            and sv2.id_type = '2445645815' --Местоположение. То которое соответсвует размеру
+'                               }
+    'очищаем список отделений на форме
+'    Ctrls.Control("USER_PARAM4").Remove ""
+    'добавляем пустое значение (только для списков с необязательным выбором значения)
+'    Ctrls.Control("USER_PARAM4").AddValue "", ""
+    'заполняем список полученными из БД данными
+'    o_ds.MoveFirst
+'    Do While Not o_ds.EOF
+'            vID=o_ds("Id").Value
+'            vCap=o_ds("Caption").Value
+'            Ctrls.Control("USER_PARAM4").AddValue vID, vCap
+'            o_ds.MoveNext
+'        Loop
+'  end if
+
+if Ctrl.Name="USER_PARAM3" then
+    'если изменился размер банковской ячейки
+    FID=Ctrl.Value & ""
+    #sql_smt{SELECT CASE WHEN VALUE1 LIKE '%ЦЕНТРАЛЬНЫЙ%' THEN 'ГО'
+                         WHEN VALUE1 LIKE '%ОТДЕЛЕНИЯ%' THEN 'ОТД'
+                         ELSE 'ФИЛ'
+                         END
+                        INTO :FIL_OTD
+                  FROM GC.SPRAV$VALUES 
+           WHERE ID = :FID;}
+
+    'получаем новый список типов сделок
+
+IF FIL_OTD = "ГО" THEN
+    Set o_ds = #sql_cur{
+select sv.value2||' (ГО - '||sv.value3||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and sv.value1 = '1'
+union all
+select sv.value2||' (ГО - '||sv.value3||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and sv.value1 = '2'
+union all
+select sv.value2||' (ГО - '||sv.value3||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and sv.value1 = '3'
+}
+END IF 
+IF FIL_OTD = "ОТД" THEN
+    Set o_ds = #sql_cur{
+select sv.value2||' (Отделения - '||sv.value4||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and sv.value1 = '1'
+union all
+select sv.value2||' (Отделения - '||sv.value4||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and sv.value1 = '2'
+union all
+select sv.value2||' (Отделения - '||sv.value4||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and sv.value1 = '3'
+}
+END IF
+IF FIL_OTD = "ФИЛ" THEN
+    Set o_ds = #sql_cur{
+select sv.value2||' (Филиалы - '||sv.value5||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and sv.value1 = '1'
+union all
+select sv.value2||' (Филиалы - '||sv.value5||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and sv.value1 = '2'
+union all
+select sv.value2||' (Филиалы - '||sv.value5||')' Caption,sv.value1 ID from gc.sprav$types s,gc.sprav$values sv where s.name = 'USER$IBS_DEAL' and s.id = sv.id_type and sv.value1 = '3'
+}
+END IF
+                               
+    'очищаем список отделений на форме
+    Ctrls.Control("USER_PARAM11").Remove ""
+    'добавляем пустое значение (только для списков с необязательным выбором значения)
+    Ctrls.Control("USER_PARAM11").AddValue "", ""
+    'заполняем список полученными из БД данными
+    o_ds.MoveFirst
+    Do While Not o_ds.EOF
+            vID=o_ds("Id").Value
+            vCap=o_ds("Caption").Value
+            Ctrls.Control("USER_PARAM11").AddValue vID, vCap
+            o_ds.MoveNext
+        Loop
+  end if
+
+
+    'Обработка изменений успешна
+  ChangeProc4=True
+end Function
+
+'обработчик инициализации формы
+Function InitProc()
+  'Установим в списке филиалов значение ГО
+  'Ctrls.Control("USER_PARAM3").Value="2403695888"
+  InitProc=true
+end Function
+
+'обработчик сохранения изменений на форме
+Function SaveProc()
+  'Например, не дадим закрыть форму если не выбрано местоположение
+  if Len(Ctrls.Control("USER_PARAM4").Value & "")=0 then
+    msgbox "Не выбрано отделение"
+  else
+    SaveProc=true
+  end if
+end Function
+
+
+
+Sub AddEditApp(pEdit,pOBJID)
+  
+    pOBJID=GridForm.Text("OBJID")
+    pNumDog=GridForm.Text("NUM_DOG")
+'    pTariff=GridForm.Text("TARIFF")
+    pNNS=GridForm.Text("NNS")
+    pDeposit=GridForm.Text("DEPOSIT")
+    pDFINAL=left(GridForm.Text("DFINAL"),10)
+
+#sql_smt{
+SELECT CASE WHEN IBS_TYPE = 1 THEN 'Простое хранение'
+            WHEN IBS_TYPE = 2 THEN 'Ответственное хранение'
+            WHEN IBS_TYPE = 3 THEN 'Сделка простое хранение'
+            WHEN IBS_TYPE = 4 THEN 'Сделка ответственное хранение'
+            ELSE 'Не определено'
+            END 
+           ,CASE WHEN PERIOD_TYPE = 'MONTH' THEN PERIOD_INT||' мес.' 
+                 WHEN PERIOD_TYPE = 'WEEK' THEN PERIOD_INT||' недел.' 
+                 ELSE 'Не определено'
+                 END
+           ,CASE WHEN PROLONG = '1' THEN 'Есть' 
+                 WHEN PROLONG = '0' THEN 'Нет'
+                 ELSE 'Не определено'
+                 END  
+                 INTO :IBS_TYPE
+                     ,:PERIOD_INT
+                     ,:PROLONG
+      FROM GC.SDM_IBS 
+     WHERE OBJID = :pOBJID;  
+}
+
+#sql_smt{
+--ФИО основного клиента
+SELECT s.NAME
+                 INTO :FIO
+      FROM GC.SDM_IBS I
+          ,GC.SUBJ S
+     WHERE 1=1
+       AND I.OBJID = :pOBJID
+       AND S.ID = I.SUBJ_ID; 
+EXCEPTION WHEN NO_DATA_FOUND THEN
+NULL;  
+}
+
+#sql_smt{
+--ФИО связанного клиента
+SELECT s.NAME
+                 INTO :FIO_DOP
+      FROM GC.SDM_IBS I
+          ,GC.SUBJ S
+     WHERE 1=1
+       AND I.OBJID = :pOBJID
+       AND S.ID = I.LINKSUBJ; 
+EXCEPTION WHEN NO_DATA_FOUND THEN
+NULL;  
+}
+
+#sql_smt{
+--Телефон основного клиента
+SELECT p.Num
+                 INTO :PHONE
+      FROM GC.SDM$IBS_PHONE P
+     WHERE OBJID = :pOBJID
+       AND TYPESUBJ = 'SUBJ'
+       AND TYPEPHONE = 'PHONE'; 
+EXCEPTION WHEN NO_DATA_FOUND THEN
+:PHONE:='';  
+}
+
+#sql_smt{
+--Почта основного клиента
+SELECT p.Num
+                 INTO :MAIL                      
+      FROM GC.SDM$IBS_PHONE P
+     WHERE P.OBJID = :pOBJID
+       AND P.TYPESUBJ = 'SUBJ'
+       AND P.TYPEPHONE = 'MAIL'; 
+EXCEPTION WHEN NO_DATA_FOUND THEN
+:MAIL:='';  
+}
+
+#sql_smt{
+--Телефон связанного клиента
+SELECT p.Num
+                 INTO :PHONE_DOP
+      FROM GC.SDM$IBS_PHONE P
+     WHERE OBJID = :pOBJID
+       AND TYPESUBJ = 'SUBJDOP'
+       AND TYPEPHONE = 'PHONE'; 
+EXCEPTION WHEN NO_DATA_FOUND THEN
+:PHONE_DOP:=''; 
+}
+
+#sql_smt{
+--Почта связанного клиента
+SELECT p.Num
+                 INTO :MAIL_DOP
+      FROM GC.SDM$IBS_PHONE P
+     WHERE OBJID = :pOBJID
+       AND TYPESUBJ = 'SUBJDOP'
+       AND TYPEPHONE = 'MAIL';  
+EXCEPTION WHEN NO_DATA_FOUND THEN
+:MAIL_DOP:=''; 
+}
+
+    Set CD=CreateObject("MDIALOG.CDIALOG")
+    With CD
+      If pEdit Then
+        .Caption = "Редактирование данных по ячейке " & pOBJID
+      Else
+        .Caption = "Редактирование данных по ячейке " & pOBJID
+      End If
+
+      .FormName = "SDM$IBS_Add03" 
+      If pEdit  Then
+        .style = 16
+        .cmdCancel.Caption="Отмена"
+        .cmdOk.Caption="Сохранить"
+        vStyle1=2048
+        vStyle2=1
+        vStyle3=65536
+      Else
+        .style = 16
+        .cmdCancel.Caption="Отмена"
+        .cmdOk.Caption="Сохранить"	
+
+        vStyle1=0
+        vStyle2=0
+        vStyle3=0
+      End If
+      With .Group
+        .AddLabel .LabelConstr(True), "Тип ячейки"
+        .AddTextBox .ControlConstr(), "Тип ячейки", "vIBS_TYPE", IBS_TYPE, 50, True, 2048
+
+        .AddLabel .LabelConstr(True), "Номер договора"
+        .AddTextBox .ControlConstr(), "Номер договора", "vNumDog", pNumDog, 15, True, 0 or 131072
+
+'        .AddLabel .LabelConstr(True), "Тариф"
+'        .AddTextBox .ControlConstr(), "Тариф", "vTariff", pTariff, 30, True, 0 or 8192 or 131072
+
+        .AddLabel .LabelConstr(True), "Период"
+        .AddTextBox .ControlConstr(), "Период", "vPeriod", PERIOD_INT, 30, True, 2048
+
+        .AddLabel .LabelConstr(True), "Пролонгация"
+        .AddTextBox .ControlConstr(), "Пролонгация", "vProlong", PROLONG, 30, True, 2048
+
+  Set MP = CreateObject("MScripts.UScripts")
+  RR = MP.Obj2Long(Request)
+  VBCode = Request("VB_SOURCE")
+#sql_smt{sys.SET_IBSOBJID_VALUE ( 'IBSOBJID', :pOBJID);} 
+IF PROLONG = "Есть" THEN
+     .AddButton .ControlConstr(0, True), "Изменить на НЕ пролонгируемый", "Изменить на НЕ пролонгируемый", "ButtonCheckAml", 0, MP, "ExecSqlVbEx", True, VBCode, "ChangeProlong",RR
+END IF
+
+IF PROLONG = "Нет" THEN
+     .AddButton .ControlConstr(0, True), "Изменить на пролонгируемый", "Изменить на пролонгируемый", "ButtonCheckAml", 0, MP, "ExecSqlVbEx", True, VBCode, "ChangeProlong",RR
+END IF
+
+IF IBS_TYPE = "Ответственное хранение" or IBS_TYPE = "Сделка ответственное хранение" then
+        .AddButton .ControlConstr(0, True), "Редактировать суммы хранения", "Редактировать суммы хранения", "ButtonCheckAml1", 0, MP, "ExecSqlVbEx", True, VBCode, "ChangeSumm",RR
+END IF
+        .AddLabel .LabelConstr(True), "Залог"
+        .AddTextBox .ControlConstr(), "Залог", "vDeposit", pDeposit, 30, True, 0 or 8192 or 131072
+
+        .AddLabel .LabelConstr(True), "Номер счета списания"
+        .AddTextBox .ControlConstr(), "Номер счета списания", "vNNS", pNNS, 30, false, 0 or 8192 or 131072
+
+        .AddLabel .LabelConstr(True), "Дата окончания"
+        .AddDateTimePicker2 .ControlConstr(), "Дата окончания", "vDFINAL", "dd/mm/yyyy", pDFINAL, True,,,,1
+
+        .AddLabel .LabelConstr(False), "Контактная информация. Телефон"
+IF IBS_TYPE = "Сделка простое хранение" or IBS_TYPE = "Сделка ответственное хранение" then
+        .AddLabel .LabelConstr(True), FIO
+END IF
+        .AddTextBox .ControlConstr(), "Контактная информация. Телефон", "vPHONE", PHONE, 100, false, 0 or 131072
+
+        .AddLabel .LabelConstr(False), "Контактная информация. Почта"
+IF IBS_TYPE = "Сделка простое хранение" or IBS_TYPE = "Сделка ответственное хранение" then
+        .AddLabel .LabelConstr(True), FIO
+END IF
+        .AddTextBox .ControlConstr(), "Контактная информация. Почта", "vMAIL", MAIL, 100, false, 0 or 131072
+
+IF IBS_TYPE = "Сделка простое хранение" or IBS_TYPE = "Сделка ответственное хранение" then
+        .AddLabel .LabelConstr(False), "Контактная информация. Телефон"
+        .AddLabel .LabelConstr(True), FIO_DOP
+        .AddTextBox .ControlConstr(), "Контактная информация. Телефон", "vPHONE_DOP", PHONE_DOP, 100, false, 0 or 131072
+        .AddLabel .LabelConstr(False), "Контактная информация. Почта"
+        .AddLabel .LabelConstr(True), FIO_DOP
+        .AddTextBox .ControlConstr(), "Контактная информация. Почта", "vMAIL_DOP", MAIL_DOP, 100, false, 0 or 131072
+END IF
+               
+      End With
+      Do
+        If .Exec() Then
+          vNumDog    = .Value("vNumDog")
+'          vTariff    = .Value("vTariff")
+          vDeposit   = .Value("vDeposit")
+          vNNS       = .Value("vNNS")
+          vDFINAL    = .Value("vDFINAL")
+          vPHONE     = .Value("vPHONE")
+          vMAIL      = .Value("vMAIL")
+IF IBS_TYPE = "Сделка простое хранение" or IBS_TYPE = "Сделка ответственное хранение" then
+          vPHONE_DOP     = .Value("vPHONE_DOP")
+          vMAIL_DOP      = .Value("vMAIL_DOP")
+END IF
+
+'          IF IBS_TYPE = "Ответственное хранение" or IBS_TYPE = "Сделка ответсвенное хранение" THEN
+'          vSUMMA_OTV = .Value("vSUMMA_OTV")
+'          ELSE
+'          vSUMMA_OTV = 0
+'          END IF
+
+ 
+
+          If pEdit Then
+            vSql="begin gc.SDM$IBS.UPD_IBS(:pOBJID,:vNumDog,/*:VtARIFF,*/:vNNS,:vDeposit,to_date(:vDFINAL,'dd/mm/yyyy'),:vPHONE,:vMAIL,:vPHONE_DOP,:vMAIL_DOP); commit; end;"
+          Else
+            vSql="begin gc.SDM$IBS.UPD_IBS(:pOBJID,:vNumDog,/*:VtARIFF,*/:vNNS,:vDeposit,to_date(:vDFINAL,'dd/mm/yyyy'),:vPHONE,:vMAIL,:vPHONE_DOP,:vMAIL_DOP); commit; end;"
+          End If
+          If OraExecPLSQL(False, vSql, "pOBJID",pOBJID,"vNumDog",vNumDog,"vNns",vNns,"vDeposit",vDeposit,"vDFINAL",vDFINAL,"vPHONE",vPHONE,"vMAIL",vMAIL,"vPHONE_DOP",vPHONE_DOP,"vMAIL_DOP",vMAIL_DOP) Then
+            Exit Do
+          End If
+        Else
+         #sql_smt{rollback;}
+          Exit Do
+        End If
+      Loop
+    End With
+End Sub
+
+Sub Edit
+  vOBJIDId=GridForm.Text("OBJID")
+  AddEditApp True, vOBJID
+End Sub
+
+Sub Del
+  vID=GridForm.Text("ID")
+  Set M=CreateObject("MMessages.UMessages")
+  If M.YesNoMsgBox("Действительно удалить выбранную заявку?")=vbYes Then
+    #sql_smt{ begin gc.app$p_cashCur.del_app(:vID); commit; end; }
+  End If
+End Sub
+
+Sub Process
+ set dlg=createobject("mdialog.cdialog")
+ set dlg_r=createobject("mdialog.cdialog")
+ Set MS = CreateObject("MScripts.UScripts")
+ Set MK=CreateObject("MMessages.UMessages")
+    vSubjID=GridForm.Text("SUBJ_ID")
+    vSubj_Name=GridForm.Text("SUBJ_NAME")
+    vFilial=GridForm.Text("FILIAL")
+    vOtdel=GridForm.Text("OTDEL")
+    vNumDog=GridForm.Text("NUM_DOG")
+    vNumIbs=GridForm.Text("NUM_IBS")
+    vDeposit=GridForm.Text("DEPOSIT")
+    vNNS=GridForm.Text("NNS")
+    vDateOpen=GridForm.Text("DATE_OPEN")
+    vOBJID=GridForm.Text("OBJID")
+
+With DLG
+    .Caption = "Выбор печати"
+    .FormName = "SDM$IBS_PRINT"
+    .style = 16
+    .cmdCancel.Caption="Отмена"
+    .cmdOk.Caption="Печать"
+
+         
+ Set PrintDs = OraEmptyDynaset
+          If Oraexecplsql(False,"begin :PrintDs := gc.sdm$ibs.get_print_list(); end;", "PrintDs", PrintDs, "subj_name", vSubjName) Then
+            If Printds.RecordCount = 0 Then
+              PrintDs = "0"
+            ElseIf PrintDs.RecordCount>1 Then
+              vSubjDSRef = MS.Obj2Long(PrintDs)
+              Request.Add "SubjDsRef", vSubjDSRef
+
+              Set FFS=CreateObject("MScripts.cUserGridForm")
+              FFS.Init "SDM$IBS$PRINT", Request, "Выбор печати", false, false, "ID", "OnUpdateComAcc"
+              FFS.AddGridColumn "ID", "Номер", 10, 0
+              FFS.AddGridColumn "CAPTION", "Тип", 10, 0
+              FFS.Show 1
+             
+              Request.Add "SubjDsRef", ""
+
+              If FFS.GetSelectedCount = 1 Then
+                vPrintDs=FFS.GetSelectedItem(0)
+              End If
+            Else
+              PrintDs.MoveFirst
+              vPrintDs= PrintDS.Fields("ID").Value()
+          End If
+          End If
+                
+
+End With
+
+IF vPrintDS = "" Then
+Exit Sub
+Else
+
+IF vPrintDS = "7" then
+
+With DLG_R
+    .Caption = "Выбор основания"
+    .FormName = "SDM$REASON_UNLOCK"
+    .style = 16
+    .cmdCancel.Caption="Отмена"
+    .cmdOk.Caption="Печать"
+    
+ Set OsnovDs = OraEmptyDynaset
+          If Oraexecplsql(False,"begin :OsnovDs := gc.sdm$ibs.get_reason_unlock_list(); end;", "OsnovDs", OsnovDs, "subj_name", vSubjName) Then
+            If Osnovds.RecordCount = 0 Then
+              OsnovDs = "0"
+            ElseIf OsnovDs.RecordCount>1 Then
+              vSubjDSRef = MS.Obj2Long(OsnovDs)
+              Request.Add "SubjDsRef", vSubjDSRef
+
+              Set FFS=CreateObject("MScripts.cUserGridForm")
+              FFS.Init "SDM$REASON_UNLOCK", Request, "Выбор основания", false, false, "ID", "OnUpdateComAcc"
+              FFS.AddGridColumn "ID", "Номер", 10, 0
+              FFS.AddGridColumn "CAPTION", "Основание", 10, 0
+              FFS.Show 1
+             
+              Request.Add "SubjDsRef", ""
+
+              If FFS.GetSelectedCount = 1 Then
+                vOsnovDs=FFS.GetSelectedItem(0)
+              End If
+            Else
+              OsnovDs.MoveFirst
+              vOsnovDs= OsnovDS.Fields("ID").Value()
+          End If
+          End If
+End With        
+END IF
+
+IF vPrintDS = "3" or vPrintDS = "4" then 
+set dlg=createobject("mdialog.cdialog")
+
+With Dlg
+	
+    .Caption = "Введите сумму для ответственного хранения"
+    .FormName = " "
+
+    	With .Group
+        .AddLabel .LabelConstr(false), "Сумма"        
+        .AddNumberBox .ControlConstr(1, True), "Сумма", "summ_otv", 0, summ_otv,,,,0
+End With
+
+
+If Not .Exec Then Exit Sub
+	summ_otv = .Value("summ_otv")
+End With
+
+
+
+END IF
+
+set DS=#sql_cur{select distinct s.NAME as NAME
+                      ,sv.ID as ID_DOV
+                      ,sv.Value6 as DOV_FILIAL
+                 from gc.sdm_ibs si
+                   ,GC.subj s 
+                   ,GC.sprav$types sp
+                   ,GC.sprav$values sv
+                   ,GC.LUSER L  
+                 where si.subj_id=:vSubjID
+                 and si.num_ibs = :vNumIbs
+                 and sp.Name='USER$DOVER'
+                 and sv.ID_Type=sp.ID
+                 and sv.Value1=s.ID
+                 and l.gid = sv.value1
+                 and l.username is not null
+                 order by 1
+               }               
+
+        Attr_Value = SelectFromDynaset(0, "FormName", "Выбор подписи со стороны банка", "Выберите сотрудника, подписывающего договор:", DS, 30,"ФИО","NAME",10,"Код в справочнике","ID_DOV","ID_DOV")
+
+ID_DOVER=DS("ID_DOV")
+DOV_FILIAL=DS("DOV_FILIAL")
+
+IF vPrintDS = "4" or vPrintDS = "5" then
+set DS=#sql_cur{SELECT 
+       I.ID
+      ,I.OBJID
+      ,S.NAME FIO
+      ,S.ID SUBJ_ID
+      ,I.INSTIME
+      ,I.DATE_ST
+      ,I.DATE_EN
+      ,I.USER_INS FROM GC.SDM$IBS_TRUST I
+             ,GC.SUBJ S
+WHERE 1=1
+  AND I.SUBJ_ID = S.ID 
+  AND I.OBJID = :vOBJID
+  AND I.DATE_ANNUL IS NULL
+               }               
+
+        Attr_Value = SelectFromDynaset(0, "FormName", "Выбор доверенного лица", "Выбор доверенного лица:", DS, 10,"ID ячейки","OBJID",40,"ФИО","FIO",10,"ID Дов лица","SUBJ_ID",15,"Дата действия с","DATE_ST",15,"Дата действия по","DATE_EN")
+
+OBJID=DS("OBJID")
+DOV_SUBJ_ID=DS("SUBJ_ID")
+NUM_DOV=DS("ID")
+
+#sql_smt{
+
+SELECT S.NAME
+      ,TO_CHAR(GC.A_BIRTHDAY(S.ID),'DD')||' '||DECODE(TO_CHAR(GC.A_BIRTHDAY(S.ID),'MM'),'01','января','02','февраля','03','марта','04','апреля','05','мая','06','июня','07','июля','08','августа','09','сентября','10','октября','11','ноября','12','декабря')||' '||TO_CHAR(GC.A_BIRTHDAY(S.ID),'YYYY') BIRTH_DOV
+      ,GC.REP_SUBJ.GET_ADDRESS(S.ID,'0','1','','1','1','1','1','1','','д.','корп.','кв.') LOCAL_ADDR
+      ,GC.REP_SUBJ.GET_ADDRESS(S.ID,'2','1','','1','1','1','1','1','','д.','корп.','кв.') ADDR_R
+      ,CP.SERNUM
+      ,R.NAME ROVD
+      ,P.NAME
+      ,'"'||TO_CHAR(CP.DATEBEG,'DD')||'" '||DECODE(TO_CHAR(CP.DATEBEG,'MM'),'01','января','02','февраля','03','марта','04','апреля','05','мая','06','июня','07','июля','08','августа','09','сентября','10','октября','11','ноября','12','декабря')||' '||TO_CHAR(CP.DATEBEG,'YYYY') DOCUM_DATE
+      ,SV.VALUE1
+      ,'"'||TO_CHAR(ST.DATE_EN,'DD')||'" '||DECODE(TO_CHAR(ST.DATE_EN,'MM'),'01','января','02','февраля','03','марта','04','апреля','05','мая','06','июня','07','июля','08','августа','09','сентября','10','октября','11','ноября','12','декабря')||' '||TO_CHAR(ST.DATE_EN,'YYYY') DATE_EN
+INTO :CLNAME_DOV
+    ,:BIRTH_DATE_DOV
+    ,:ADDR_LOC_DOV
+    ,:ADDR_BIRTH_DOV
+    ,:SERNUM_DOV
+    ,:ROVD_DOV
+    ,:NAME_DOCUM_DOV
+    ,:DOCUM_DATE_DOV
+    ,:KODP_D
+    ,:END_DAT
+         FROM GC.SDM$IBS_TRUST ST
+             ,GC.SUBJ S
+             ,GC.CLIENTPASSPORT CP
+             ,GC.PASSPORT P
+             ,GC.SPRAV R
+             ,GC.SPRAV$VALUES SV
+WHERE 1=1
+  AND ST.ID = :NUM_DOV
+  AND S.ID = ST.SUBJ_ID
+  AND CP.SUBJ_ID = S.ID
+  AND P.CODE = CP.PASSPORTCODE
+  AND R.ID(+)=CP.ROVD_ID
+  AND SV.ID(+)=CP.SUBDIV_CODE
+  AND P.PRIORITET=(SELECT MIN(PP.PRIORITET) 
+                               FROM GC.SUBJ SS
+                                   ,GC.CLIENTPASSPORT CPP
+                                   ,GC.PASSPORT PP 
+                          WHERE 1=1
+                            AND SS.ID=S.ID  
+                            AND CPP.SUBJ_ID=SS.ID 
+                            AND CPP.PASSPORTCODE=PP.CODE);  
+}
+END IF
+
+#sql_smt{select    initcap(Subj.NAME) ClName,
+                   '"'||to_char(si.date_open,'DD')||'" '||decode(to_char(si.date_open,'MM'),'01','января','02','февраля','03','марта','04','апреля','05','мая','06','июня','07','июля','08','августа','09','сентября','10','октября','11','ноября','12','декабря')||' '||to_char(si.date_open,'YYYY') Open_Date,
+                   '"'||to_char(t.date_st,'DD')||'" '||decode(to_char(t.date_st,'MM'),'01','января','02','февраля','03','марта','04','апреля','05','мая','06','июня','07','июля','08','августа','09','сентября','10','октября','11','ноября','12','декабря')||' '||to_char(t.date_st,'YYYY') Open_Date_Prol,
+                   '"'||to_char(si.dfinal,'DD')||'" '||decode(to_char(si.dfinal,'MM'),'01','января','02','февраля','03','марта','04','апреля','05','мая','06','июня','07','июля','08','августа','09','сентября','10','октября','11','ноября','12','декабря')||' '||to_char(si.dfinal,'YYYY') Close_Date,
+                   P.Name Docum_Name,
+                 CP.SerNum SerNum,
+               '"'||to_char(CP.DateBeg,'DD')||'" '||decode(to_char(CP.DateBeg,'MM'),'01','января','02','февраля','03','марта','04','апреля','05','мая','06','июня','07','июля','08','августа','09','сентября','10','октября','11','ноября','12','декабря')||' '||to_char(CP.DateBeg,'YYYY') Docum_Date,
+               r.name ROVD,
+               a.POSTINDEX PostIndex,
+               c.name Country,
+                   to_char(gc.a_birthday(subj.id),'DD')||' '||decode(to_char(gc.a_birthday(subj.id),'MM'),'01','января','02','февраля','03','марта','04','апреля','05','мая','06','июня','07','июля','08','августа','09','сентября','10','октября','11','ноября','12','декабря')||' '||to_char(gc.a_birthday(subj.id),'YYYY'),
+           s1.name Dist,
+           s2.name Place,
+                   s3.name DocCity ,
+               RTRIM(a.street)||' д.'||RTRIM(a.building)||'- '||RTRIM(a.korp)||' кв.'||RTRIM(a.flat) Addr,
+                   si.nns nns,                  
+                   DECODE(si.NNS,'','X',' ') nal,
+                   DECODE(instr(nvl(si.NNS,'0'),'4'),'0',' ','X') beznal,
+                   ' ' noprol,
+                   'X' prol,   
+                   replace(:summ_otv,'.','-'),                
+                   gc.digwords.getstr(:summ_otv,810) sumprop,
+                   dfinal-date_open srok,
+                   sv.value2 Dover_Dol,
+                   sv.value8 Dover_Dol2,
+                   SUBSTR(sv.value9,1,INSTR(sv.value9,' ')-1)||' '||substr(sv.value9,instr(sv.value9,' ')+1,1)||'.'||substr(sv.value9,instr(sv.value9,' ',1,2)+1,1)||'.'||null Dover_FIO,
+                   sv.value4 Dover_Num,
+                   sv.value5 Dover_Date,
+gc.a_otdelenie_fil(decode(si.filial,'M','382','0','382',si.filial)) Filial_full
+                  ,si.filial Filial
+
+           ,gc.REp_subj.get_address(subj.id,'0','1','','1','1','1','1','1','','д.','корп.','кв.') LOCAL_ADDR
+                  ,gc.REp_subj.get_address(subj.id,'2','1','','1','1','1','1','1','','д.','корп.','кв.') ADDR_R
+    ,subj.id
+,si.size_ibs 
+,si.num_dog 
+,si.num_ibs number_safe
+,(select sv_city.value4 from gc.sprav$types s
+             ,gc.sprav$values sv_city
+where 1=1 
+  and s.name = 'USER$PLASE_IBS'
+  and sv_city.id_type = s.id
+  and sv_city.value1 = si.place)
+,REPLACE(TRIM(TO_CHAR(round(MONTHS_BETWEEN(si.dfinal,t.date_st))*t.tariff_summ,'99999D99')),'.','-')  
+,gc.digwords.getstr(round(MONTHS_BETWEEN(si.dfinal,t.date_st))*t.tariff_summ,810) 
+,sv.value9
+,si.place
+,case when si.deposit = 0 then '0-00' else replace(trim(to_char(si.deposit,'99999D99')),'.','-') end deposit
+,decode(si.deposit,'НЕТ','НЕТ',gc.digwords.getstr(si.deposit,810)) deposit_words
+,(SELECT SV.VALUE2 FROM GC.SPRAV$TYPES S
+             ,GC.SPRAV$VALUES SV
+WHERE 1=1
+  AND S.NAME = 'USER$IBS_UNLOCK_REASON'
+  AND SV.ID_TYPE = S.ID
+  AND SV.VALUE1 = :vOsnovDS)
+,si.linksubj
+,si.ibs_type 
+
+            INTO  :ClName   --имя клиента
+                 ,:Open_Date  --дата открытия договора
+                 ,:Open_Date_Prol  --дата открытия договора в случае пролонгации
+                 ,:Close_Date --дата окончания договора 
+                 ,:Docum_Name
+                 ,:SerNum
+                 ,:Docum_Date
+                 ,:ROVD
+                 ,:PostIndex 
+                 ,:Country
+                 ,:birth
+                 ,:Dist
+                 ,:Place
+                 ,:DocCity 
+                 ,:Addr
+                 ,:brief 
+                 ,:nal
+                 ,:beznal
+                 ,:noprol
+                 ,:prol 
+                 ,:sum_otv
+                 ,:sum_otv_prop              
+                 ,:Srok
+                 ,:Dover_Dol --должность подписывающего род падеж
+                 ,:Dover_Dol2 --должность подписающего им падеж
+                 ,:Dover_FIO  -- ФИО подписывающего 
+                 ,:Dover_Num  -- номер доверненности
+                 ,:Dover_Date -- дата доверенности 
+                 ,:filial_full  
+                 ,:Filial
+             ,:LOCAL_ADDR
+                     ,:ADDR_R
+                 ,:CLID
+,:SIZE
+,:NUMBER
+,:number_safe
+,:CITY
+,:summa
+,:summa_words
+,:DFIO
+,:PLACEIBS
+,:DEPOSIT
+,:DEPOSIT_WORDS
+,:REASON_UNLOCK
+,:linksubj
+,:ibs_type
+
+
+            from  GC.SDM_IBS SI
+         ,gc.sdm$ibs_tariff t
+         ,GC.Subj Subj
+         ,GC.Passport P
+         ,GC.ClientPassport CP
+                 ,GC.sprav s3
+         ,GC.sprav r
+         ,GC.sprav ci 
+         ,GC.address a
+         ,GC.Countries c
+         ,GC.sprav s
+         ,GC.sprav s1
+         ,GC.sprav s2
+         ,gc.sprav$values sv 
+
+
+
+           where 1=1
+             and si.objid= :vOBJID
+             and t.objid = si.objid
+             and t.id = (select max(tt.id) from gc.sdm$ibs_tariff tt where tt.objid = t.objid)  
+             and Subj.ID = si.Subj_ID
+             and CP.Subj_ID=Subj.ID 
+             and CP.PassportCode=P.Code 
+             and s3.ID(+)=CP.City_ID    ---
+             and r.type(+)=chr(4) 
+             and cp.rovd_id=r.id(+) 
+             and ci.type(+)=chr(2) 
+             and cp.city_id=ci.id(+) 
+             and a.subj_id=subj.id
+             and a.COUNTRY_ID=c.ID(+) 
+             and a.city_id=s.id(+) 
+             and s.type(+)=chr(2) 
+             and a.district_id=s1.id(+) 
+             and s1.type(+)=chr(3) 
+             and a.place_id=s2.id(+) 
+             and s2.type(+)=chr(75)
+             and a.propis=1
+             and sv.ID=:ID_DOVER
+--- добавил в хвост, убирает ошибку при кол документов у клиента более 1 -----             
+             and p.prioritet=(select min(pp.prioritet) 
+                  from GC.subj ss,GC.ClientPassport cpp,GC.Passport Pp 
+                  where ss.id=Subj.ID  --- связка с ID клиента (Subj.ID) 
+                              and cpp.subj_id=ss.id and CPp.PassportCode=Pp.code);
+
+	 }
+
+IF LINKSUBJ <> "" THEN
+#sql_smt{
+SELECT INITCAP(S.NAME)
+      ,to_char(gc.a_birthday(s.id),'DD')||' '||decode(to_char(gc.a_birthday(s.id),'MM'),'01','января','02','февраля','03','марта','04','апреля','05','мая','06','июня','07','июля','08','августа','09','сентября','10','октября','11','ноября','12','декабря')||' '||to_char(gc.a_birthday(s.id),'YYYY')
+      ,P.Name Docum_Name
+      ,CP.SerNum SerNum   
+      ,'"'||to_char(CP.DateBeg,'DD')||'" '||decode(to_char(CP.DateBeg,'MM'),'01','января','02','февраля','03','марта','04','апреля','05','мая','06','июня','07','июля','08','августа','09','сентября','10','октября','11','ноября','12','декабря')||' '||to_char(CP.DateBeg,'YYYY') Docum_Date         
+      ,gc.REp_subj.get_address(s.id,'0','1','','1','1','1','1','1','','д.','корп.','кв.') LOCAL_ADDR
+   INTO :FIOLINK
+       ,:BIRTHLINK  
+       ,:DOCNAMELINK
+       ,:SERNUMLINK
+       ,:DOCDATELINK
+       ,:LOCALADDRLINK
+       FROM GC.SUBJ S
+           ,GC.HUMAN H
+           ,GC.PASSPORT P
+           ,GC.CLIENTPASSPORT CP
+           ,GC.SPRAV S3
+           ,GC.SPRAV R
+WHERE 1=1
+  AND S.ID = :LINKSUBJ
+  AND H.SUBJ_ID = S.ID
+  AND CP.SUBJ_ID=S.ID 
+  AND CP.PASSPORTCODE=P.CODE 
+  AND S3.ID(+)=CP.CITY_ID    ---
+  AND R.TYPE(+)=CHR(4) 
+  AND CP.ROVD_ID=R.ID(+)  
+--- ДОБАВИЛ В ХВОСТ, УБИРАЕТ ОШИБКУ ПРИ КОЛ ДОКУМЕНТОВ У КЛИЕНТА БОЛЕЕ 1 -----             
+             AND P.PRIORITET=(SELECT MIN(PP.PRIORITET) 
+                                        FROM GC.SUBJ SS
+                                            ,GC.CLIENTPASSPORT CPP
+                                            ,GC.PASSPORT PP 
+                                WHERE 1=1
+                                  AND SS.ID=S.ID   
+                                  AND CPP.SUBJ_ID=SS.ID 
+                                  AND CPP.PASSPORTCODE=PP.CODE); 
+}
+END IF
+
+
+IF vPrintDS = "8" AND (IBS_TYPE = "1" OR IBS_TYPE = "2") THEN 
+            MK.ErrorMsgBox "Выбранный отчет не подходит для данного типа ячейки!"
+Exit Sub
+END IF            
+
+
+#sql_smt{
+begin
+select 
+REGEXP_REPLACE(TO_CHAR(SYS_XMLAGG (XMLELEMENT (col, replace(trim(to_char(summa,'99999999D99')),'.','-')||' '||gc.digwords.getstr(summa,cur) || '; ')).EXTRACT('/ROWSET/COL/text()').getclobval ()),'.$','') summa_otv_full
+into :summa_otv_full
+      from gc.sdm$ibs_otv
+where 1=1
+  and objid = :vOBJID
+  group by objid;
+EXCEPTION WHEN NO_DATA_FOUND THEN
+:summa_otv_full:='';
+end;
+}
+
+If (IBS_TYPE = "2" or IBS_TYPE = "4") AND SUMMA_OTV_FULL = "" THEN
+            MK.ErrorMsgBox "Нет данных по суммам ответственного хранения!"
+Exit Sub
+END IF
+
+
+#sql_smt{
+select 
+gc.report.getbankname(decode(:DOV_FILIAL,'M','382',:DOV_FILIAL)) BANK,
+gc.rep_subj.get_bank_bik(decode(:DOV_FILIAL,'M','382',:DOV_FILIAL)) bik,
+gc.rep_taxpayer.getregnum (decode(:DOV_FILIAL,'M','382',:DOV_FILIAL)) reg,
+gc.rep_filial.get_post_index(decode(:DOV_FILIAL,'M','382',:DOV_FILIAL)) || ' ' || gc.rep_filial.get_address(decode(:DOV_FILIAL,'0','382',:DOV_FILIAL), 1, 'р-н', 'д.', 'корп.', 'кв.', ',') adr
+,gc.printprepare.date2text(sysdate) TODAY     
+,(select IDN from gc.org where subj_id=decode(:DOV_FILIAL,'M','382',:DOV_FILIAL)) INN
+,(select KS from gc.banki where bank_id=decode(:DOV_FILIAL,'M','382',:DOV_FILIAL)) KS
+into
+ :BANK
+,:BIK
+,:REG
+,:ADR
+,:TODAY
+,:INN
+,:KS
+from dual;			
+}
+
+
+
+#sql_smt{select
+(select oa1.value1 from gc.sprav$values oa1,gc.clientpassport p where p.subj_id = :vSubjID and p.subdiv_code = oa1.ID)
+into
+:kodp
+from dual;                    
+}
+
+
+OPEN_DATE=Open_Date
+OPEN_DATE_PROL=Open_Date_prol
+CLOSE_DATE=Close_Date
+CLIENT_NAME=  ClName
+CLIENT_DOCUM= SerNum              ' Название типа документа, серия, номер
+DOCUM_ORG = ROVD                   ' Организация, выдавшая документ  
+DOC_CITY=DocCity
+DOCUM_NAME=Docum_Name       
+CLIENT_ADDR=Addr               ' Локальный адрес (улица, дом и т.д.)  
+DOCUM_DATE=Docum_Date
+DOCUM_GOROD=DocCity 
+EXTNUMACC=nns
+CUR=CUR
+NUMACC=ns
+NAL=nal
+BIRTH=birth
+BEZNAL=beznal
+NOPROL=noprol
+PROL=prol
+SIZE=size
+NUMBER=number
+NUMBER_SAFE=number_safe
+BRIEF=brief
+KODP=kodp
+SUMM=SumN
+SUM_OTV=SUM_OTV
+SUM_OTV_PROP=SUM_OTV_PROP
+SROK=Srok
+DOVER_DOL=Dover_Dol
+DOVER_FIO=Dover_FIO
+DOVER_NUM=Dover_Num
+DOVER_DATE=Dover_Date 
+FILIAL=Filial
+LOCAL_ADDR=LOCAL_ADDR
+ADDR_R=ADDR_R
+CLID=CLID
+BANK=BANK
+BIK=BIK
+REG=REG
+ADR=ADR
+TODAY=TODAY
+INN=INN
+CITY=CITY
+KS=KS
+PROC=PROC
+CUR=CUR
+SUMMA=summa
+SUMMA_WORDS=summa_words
+SUMM_OTV=SUMM_OTV
+PLACEIBS=PLACEIBS
+DEPOSIT=DEPOSIT
+DEPOSIT_WORDS=DEPOSIT_WORDS
+REASON_UNLOCK=REASON_UNLOCK
+LINKSUBJ=LINKSUBJ
+FIOLINK=FIOLINK
+BIRTHLINK=BIRTHLINK
+DOCNAMELINK=DOCNAMELINK
+SERNUMLINK=SERNUMLINK
+DOCDATELINK=DOCDATELINK
+LOCALADDRLINK=LOCALADDRLINK
+HR=HR
+OT=OT
+summa_otv_full=summa_otv_full
+
+
+dim path
+Set fso = CreateObject("Scripting.FileSystemObject")
+
+select case vPrintDS
+   case "1" filename ="V:\reports\IBS\Dog_safe.dot"
+   case "2" filename ="V:\reports\IBS\dog_dop_safe_ibs.dot"
+   case "3" filename ="V:\reports\IBS\DOG_ARENDA_USL.dot"
+   case "4" filename ="V:\reports\IBS\Dog_Dov_ibs_usl.dot"
+   case "5" filename ="V:\reports\IBS\Dog_Dov_ibs.dot"
+   case "6" filename ="V:\reports\IBS\DOG_PROLONG_IBS.dot"
+   case "7" filename ="V:\reports\IBS\AKT_UNLOCK_IBS.dot"   
+   case "8" 
+select case IBS_TYPE 
+case "3" filename ="V:\reports\IBS\DOG_ARENDA_OSOB_USL_1.dot" 
+case "4"  filename ="V:\reports\IBS\DOG_ARENDA_OSOB_USL_2.dot" 
+end select
+end select
+
+      
+Set wrdApp=CreateObject("Word.Application")
+Set wrddoc = wrdApp.Documents.add(filename)
+wrdapp.Selection.Find.Execute "<<dogid>>",,,,,,True,1,,DogId,2
+wrdapp.Selection.Find.Execute "<<OpenDate>>",,,,,,True,1,,OPEN_DATE,2
+wrdapp.Selection.Find.Execute "<<OpenDateProl>>",,,,,,True,1,,OPEN_DATE_PROL,2
+wrdapp.Selection.Find.Execute "<<CloseDate>>",,,,,,True,1,,CLOSE_DATE,2
+wrdapp.Selection.Find.Execute "<<docum_date>>",,,,,,True,1,,DOCUM_DATE,2
+wrdapp.Selection.Find.Execute "<<DocCity>>",,,,,,True,1,,DOC_CITY,2
+wrdapp.Selection.Find.Execute "<<client_name>>",,,,,,True,1,,CLIENT_NAME,2
+wrdapp.Selection.Find.Execute "<<client_docum>>",,,,,,True,1,,CLIENT_DOCUM,2
+wrdapp.Selection.Find.Execute "<<docum_name>>",,,,,,True,1,,DOCUM_NAME,2
+wrdapp.Selection.Find.Execute "<<docum_place>>",,,,,,True,1,,DOCUM_ORG,2
+wrdapp.Selection.Find.Execute "<<docum_gorod>>",,,,,,True,1,,DOCUM_GOROD,2
+wrdapp.Selection.Find.Execute "<<docum_date>>",,,,,,True,1,,DOCUM_DATE,2
+wrdapp.Selection.Find.Execute "<<percent_digit>>",,,,,,True,1,,PERCENT_DIGIT,2
+wrdapp.Selection.Find.Execute "<<client_gorod>>",,,,,,True,1,,CLIENT_GOROD,2
+wrdapp.Selection.Find.Execute "<<client_addr>>",,,,,,True,1,,CLIENT_ADDR,2
+wrdapp.Selection.Find.Execute "<<extnumacc>>",,,,,,True,1,,EXTNUMACC,2
+wrdapp.Selection.Find.Execute "<<cur>>",,,,,,True,1,,cur,2
+wrdapp.Selection.Find.Execute "<<numacc>>",,,,,,True,1,,NUMACC,2
+wrdapp.Selection.Find.Execute "<<SUM_OTV_PROP>>",,,,,,True,1,,SUM_OTV_PROP,2
+wrdapp.Selection.Find.Execute "<<SUMM_OTV>>",,,,,,True,1,,SUMM_OTV,2
+wrdapp.Selection.Find.Execute "<<srok>>",,,,,,True,1,,SROK,2
+wrdapp.Selection.Find.Execute "<<doverdol>>",,,,,,True,1,,DOVER_DOL,2
+wrdapp.Selection.Find.Execute "<<doverdol2>>",,,,,,True,1,,DOVER_DOL2,2
+wrdapp.Selection.Find.Execute "<<doverfio>>",,,,,,True,1,,DOVER_FIO,2
+wrdapp.Selection.Find.Execute "<<dovernum>>",,,,,,True,1,,DOVER_NUM,2
+wrdapp.Selection.Find.Execute "<<doverdate>>",,,,,,True,1,,DOVER_DATE,2
+wrdapp.Selection.Find.Execute "<<AccPrc>>",,,,,,True,1,,ACCPRC,2
+wrdapp.Selection.Find.Execute "<<AccDog>>",,,,,,True,1,,ACCDOG,2
+wrdapp.Selection.Find.Execute "<<LOCAL_ADDR>>",,,,,,True,1,,LOCAL_ADDR,2
+wrdapp.Selection.Find.Execute "<<ADDR_R>>",,,,,,True,1,,ADDR_R,2
+wrdapp.Selection.Find.Execute "<<CLID>>",,,,,,True,1,,CLID,2
+wrdapp.Selection.Find.Execute "<<BANK>>",,,,,,True,1,,BANK,2
+wrdapp.Selection.Find.Execute "<<BIK>>",,,,,,True,1,,BIK,2
+wrdapp.Selection.Find.Execute "<<REG>>",,,,,,True,1,,REG,2
+wrdapp.Selection.Find.Execute "<<ADR>>",,,,,,True,1,,ADR,2
+wrdapp.Selection.Find.Execute "<<TODAY>>",,,,,,True,1,,TODAY,2
+wrdapp.Selection.Find.Execute "<<INN>>",,,,,,True,1,,INN,2
+wrdapp.Selection.Find.Execute "<<CITY>>",,,,,,True,1,,CITY,2
+wrdapp.Selection.Find.Execute "<<KS>>",,,,,,True,1,,KS,2
+wrdapp.Selection.Find.Execute "<<PROC>>",,,,,,True,1,,PROC,2
+wrdapp.Selection.Find.Execute "<<DFIO>>",,,,,,True,1,,DFIO,2
+wrdapp.Selection.Find.Execute "<<N>>",,,,,,True,1,,NAL,2
+wrdapp.Selection.Find.Execute "<<B>>",,,,,,True,1,,BEZNAL,2
+wrdapp.Selection.Find.Execute "<<SIZE>>",,,,,,True,1,,SIZE,2
+wrdapp.Selection.Find.Execute "<<ND>>",,,,,,True,1,,NUMBER,2
+wrdapp.Selection.Find.Execute "<<BIRTH>>",,,,,,True,1,,BIRTH,2
+wrdapp.Selection.Find.Execute "<<BR>>",,,,,,True,1,,BRIEF,2
+wrdapp.Selection.Find.Execute "<<KODP>>",,,,,,True,1,,KODP,2
+wrdapp.Selection.Find.Execute "<<M>>",,,,,,True,1,,NOPROL,2
+wrdapp.Selection.Find.Execute "<<P>>",,,,,,True,1,,PROL,2
+wrdapp.Selection.Find.Execute "<<sum>>",,,,,,True,1,,SUM,2
+wrdapp.Selection.Find.Execute "<<summa>>",,,,,,True,1,,SUMMA,2
+wrdapp.Selection.Find.Execute "<<summa_words>>",,,,,,True,1,,SUMMA_WORDS,2
+wrdapp.Selection.Find.Execute "<<NO>>",,,,,,True,1,,NUMBER_SAFE,2
+wrdapp.Selection.Find.Execute "<<placeibs>>",,,,,,True,1,,PLACEIBS,2
+wrdapp.Selection.Find.Execute "<<deposit>>",,,,,,True,1,,DEPOSIT,2
+wrdapp.Selection.Find.Execute "<<deposit_words>>",,,,,,True,1,,DEPOSIT_WORDS,2
+wrdapp.Selection.Find.Execute "<<reason_unlock>>",,,,,,True,1,,REASON_UNLOCK,2
+wrdapp.Selection.Find.Execute "<<linksubj>>",,,,,,True,1,,LINKSUBJ,2
+wrdapp.Selection.Find.Execute "<<fiolink>>",,,,,,True,1,,FIOLINK,2
+wrdapp.Selection.Find.Execute "<<birthlink>>",,,,,,True,1,,BIRTHLINK,2
+wrdapp.Selection.Find.Execute "<<docnamelink>>",,,,,,True,1,,DOCNAMELINK,2
+wrdapp.Selection.Find.Execute "<<sernumlink>>",,,,,,True,1,,SERNUMLINK,2
+wrdapp.Selection.Find.Execute "<<docdatelink>>",,,,,,True,1,,DOCDATELINK,2
+wrdapp.Selection.Find.Execute "<<localaddrlink>>",,,,,,True,1,,LOCALADDRLINK,2
+wrdapp.Selection.Find.Execute "<<hr>>",,,,,,True,1,,HR,2
+wrdapp.Selection.Find.Execute "<<ot>>",,,,,,True,1,,OT,2
+wrdapp.Selection.Find.Execute "<<summa_otv_full>>",,,,,,True,1,,summa_otv_full,2
+
+
+IF vPrintDS = "4" or vPrintDS = "5" or vPrintDS = "3" then
+wrdapp.Selection.Find.Execute "<<CLNAME_DOV>>",,,,,,True,1,,CLNAME_DOV,2
+wrdapp.Selection.Find.Execute "<<BIRTH_DATE_DOV>>",,,,,,True,1,,BIRTH_DATE_DOV,2
+wrdapp.Selection.Find.Execute "<<ADDR_LOC_DOV>>",,,,,,True,1,,ADDR_LOC_DOV,2
+wrdapp.Selection.Find.Execute "<<ADDR_BIRTH_DOV>>",,,,,,True,1,,ADDR_BIRTH_DOV,2
+wrdapp.Selection.Find.Execute "<<SERNUM_DOV>>",,,,,,True,1,,SERNUM_DOV,2
+wrdapp.Selection.Find.Execute "<<ROVD_DOV>>",,,,,,True,1,,ROVD_DOV,2
+wrdapp.Selection.Find.Execute "<<NAME_DOCUM_DOV>>",,,,,,True,1,,NAME_DOCUM_DOV,2
+wrdapp.Selection.Find.Execute "<<DOCUM_DATE_DOV>>",,,,,,True,1,,DOCUM_DATE_DOV,2
+wrdapp.Selection.Find.Execute "<<KODP_D>>",,,,,,True,1,,KODP_D,2
+wrdapp.Selection.Find.Execute "<<END_DAT>>",,,,,,True,1,,END_DAT,2
+wrdapp.Selection.Find.Execute "<<NUM_DOV>>",,,,,,True,1,,NUM_DOV,2
+
+END IF
+
+wrddoc.ActiveWindow.Visible = True
+wrddoc.ActiveWindow.Document.PrintPreview
+ End if
+End Sub
+
+Sub ChooseSubj
+  Request.Add "ChooseSubj", "Y"
+  Set FS=CreateObject("MScripts.cUserGridForm")
+  FS.Init "APP$CASH$CUR$SUBJ", Request, "Список клиентов", True, False, "ID", "OnUpdateComAcc"
+  FS.AddGridColumn "ID", "Ид. клиента", 10, 0
+  FS.AddGridColumn "NAME", "ФИО", 10, 0
+  FS.AddGridColumn "PASSPORT", "Номер документа", 10, 0
+  FS.AddGridColumn "BIRTHDAY", "Дата рождения", 10, 0
+  FS.AddGridColumn "INN", "ИНН", 10, 0
+  FS.Show 1
+  Request.Add "ChooseSubj", ""
+
+  If FS.GetSelectedCount = 1 Then
+    vSubjId=FS.GetSelectedItem(0)
+    #sql_smt{ :vSubjName:=gc.p_subj.getName(:vSubjId); }
+    Set M = CreateObject("MScripts.UScripts")
+    Set CD = M.Long2Obj(Request("CDRef"))
+    Request.Add "SelectedSubj", vSubjId
+    CD.Control("vSubjName").Value=vSubjName
+  End If
+
+End Sub
+
+Sub Journal
+  vID=GridForm.Text("OBJID")
+  If OraExecPLSQL(False, "begin :sdate := trunc(sysdate); end;", "sdate", vSysdate) Then
+      Set MT=CreateObject("MTune.UTune")
+      MT.JDogTxtModal vID, "Журнал", "", "'SDMIBS'", "", , vSysdate
+  End If
+End Sub
+
+Function Refresh
+  vSubjDsRef = Request("SubjDsRef")
+  vAccDsRef = Request("AccDsRef")
+  vDoverDsRef = Request("DoverDsRef")
+  vGlobalQualsDsRef = Request("GlobalQualsDsRef")
+  Set MS = CreateObject("MScripts.UScripts")
+  If Request("ChooseSubj") = "Y" Then
+    fSubjName = FRequest("ChooseSubjName")
+    Set SubjDs = OraEmptyDynaset
+    Set Refresh = SubjDs
+  ElseIf Len(vSubjDsRef)>0 Then
+    Set refresh = MS.Long2Obj(vSubjDsRef)
+  ElseIf Len(vAccDsRef)>0 Then
+    Set refresh = MS.Long2Obj(vAccDsRef)
+  ElseIf Len(vDoverDsRef)>0 Then
+    Set refresh = MS.Long2Obj(vDoverDsRef)
+  vObjID=GridForm.Text("OBJID")
+    Set App_ds=OraEmptyDynaset
+    #sql_smt{begin :App_ds := gc.sdm$ibs.get_trust_list(SYS_CONTEXT('IBSOBJID','IBSOBJID'));
+       end;}
+    Set Refresh = App_ds    
+  ElseIf Len(vGlobalQualsDsRef)>0 Then
+    Set refresh = MS.Long2Obj(vGlobalQualsDsRef)   
+    Set App_ds=OraEmptyDynaset
+    #sql_smt{begin :App_ds := gc.sdm$ibs.get_global_quals();
+       end;}
+    Set Refresh = App_ds  
+
+  Else
+
+    fSubjName=FRequest("SubjName")
+    fSubjId=FRequest("SubjId")
+    fNum_Dog=FRequest("Num_Dog")
+    fNum_Ibs=FRequest("Num_Ibs")
+    fFilial=FRequest("Filial")
+    fOtdel=FRequest("Otdel")
+    fAppDateB=FRequest("AppDateB")
+    fAppDateE=FRequest("AppDateE")
+    fAppExecDateB=FRequest("AppExecDateB")
+    fAppExecDateE=FRequest("AppExecDateE")
+    vRateDateType=Request("RateDateType")
+    fLoop_All=FRequest("Loop_All")
+    fLoop_Delay=FRequest("Loop_Delay")
+
+    Set App_ds=OraEmptyDynaset
+    #sql_smt{begin :App_ds := gc.sdm$ibs.get_app_list
+         (:fSubjName,:fSubjId,:fNum_Dog,:fNum_Ibs,:fFilial,:fOtdel
+         ,to_date(:fAppDateB,'dd/mm/yyyy'),to_date(:fAppDateE,'dd/mm/yyyy'),to_date(:fAppExecDateB,'dd/mm/yyyy'),to_date(:fAppExecDateE,'dd/mm/yyyy')
+         ,:vRateDateType,:fLoop_All,:fLoop_Delay);
+       end;}
+    Set Refresh = App_ds
+
+
+  End If
+End Function
+
+Function Filter
+  Set CD=CreateObject("MDIALOG.CDIALOG")
+
+  If Request("ChooseSubj")="Y" Then
+
+    fSubjName=FRequest("ChooseSubjName")
+    With CD
+      .Caption = "Фильтр"
+      .FormName = "SDM$IBS_FS"
+      .style = 4
+      With .Group
+        .AddLabel .LabelConstr(True), "ФИО"
+        .AddTextBox .ControlConstr(), "ФИО", "fSubjName", fSubjName, 256, False, 8
+      End With
+      If .Exec() Then
+        FRequest.Add "ChooseSubjName", .Value("fSubjName")
+        Filter=true
+      End If
+    End With
+  Else
+    Set vfds = #sql_cur{select s.name as id, v.name caption from gc.v$filials v,gc.subj s where s.id = v.objid order by sort}
+    Set vods = #sql_cur{select name as id, name caption from gc.v$otdels where filial_id = 'M' and id in (select value3 from gc.sprav$values where id_type = '2445645815' and value3 is not null)  order by sort}
+    fSubjName=FRequest("SubjName")
+    fSubjId=FRequest("SubjId")
+    fNum_Dog=FRequest("Num_Dog")
+    fNum_Ibs=FRequest("Num_Ibs")
+    fFilial=FRequest("Filial")
+    fOtdel=FRequest("Otdel")
+    fAppDateB=FRequest("AppDateB")
+    fAppDateE=FRequest("AppDateE")
+    fAppExecDateB=FRequest("AppExecDateB")
+    fAppExecDateE=FRequest("AppExecDateE")
+    fLoop_All=FRequest("Loop_All")
+
+
+    With CD
+      .Caption = "Фильтр"
+      .FormName = "SDM$IBS_F"
+      .style = 4
+      With .Group
+        .AddLabel .LabelConstr(True), "ФИО вкладчика"
+        .AddTextBox .ControlConstr(), "ФИО вкладчика", "fSubjName", fSubjName, 256, False, 8
+        .AddLabel .LabelConstr(True), "ID клиента"
+        .AddTextBox .ControlConstr(), "ID клиента", "fSubjId", fSubjId, 15, False, 8192
+        .AddLabel .LabelConstr(True), "Номер договора"
+        .AddTextBox .ControlConstr(), "Номер договора", "fNum_Dog", fNum_Dog, 15, False, 8192
+        .AddLabel .LabelConstr(True), "Номер ячейки"
+        .AddTextBox .ControlConstr(), "Номер ячейки", "fNum_Ibs", fNum_Ibs, 30, False, 0
+        .AddLabel .LabelConstr(True), "Филиал"
+        .AddComboBoxData .ControlConstr(), "Филиал", "fFilial", fFilial, vfDS, False
+        .AddLabel .LabelConstr(True), "Отдел"
+        .AddComboBoxData .ControlConstr(), "Отдел", "fotdel", fOtdel, voDS, False
+
+        With .AddGroup(.ControlConstr(1,true),1,"Дата открытия ячейки")
+          With .AddGroup(.ControlConstr(1,false),1,"С")
+            .AddDateTimePicker2 .ControlConstr(1), "Дата начала периода", "fAppDateB", "dd/mm/yyyy", fAppDateB, False
+          End With
+          With .AddGroup(.ControlConstr(),1,"По")
+            .AddDateTimePicker2 .ControlConstr(1), "Дата окончания периода", "fAppDateE", "dd/mm/yyyy", fAppDateE, False
+          End With
+        End With
+        With .AddGroup(.ControlConstr(1,true),1,"Дата окончания ячейки")
+          With .AddGroup(.ControlConstr(1,false),1,"С")
+            .AddDateTimePicker2 .ControlConstr(1), "Дата начала периода", "fAppExecDateB", "dd/mm/yyyy", fAppExecDateB, False
+          End With
+          With .AddGroup(.ControlConstr(),1,"По")
+            .AddDateTimePicker2 .ControlConstr(1), "Дата окончания периода", "fAppExecDateE", "dd/mm/yyyy", fAppExecDateE, False
+          End With
+        End With
+        .AddCheckBox .ControlConstr(4, True), "LOOP_DELAY", "fLOOP_DELAY", "Есть просрочка", 0
+        .AddCheckBox .ControlConstr(4, True), "LOOP_ALL", "fLOOP_ALL", "Показать все", 0
+ 
+      End With
+      If .Exec() Then
+        FRequest.Add "SubjName", .Value("fSubjName")
+        FRequest.Add "SubjId", .Value("fSubjId")
+        FRequest.Add "Num_Dog", .Value("fNum_Dog")
+        FRequest.Add "Num_Ibs", .Value("fNum_Ibs")
+        FRequest.Add "Filial", .Value("fFilial")
+        FRequest.Add "Otdel", .Value("fOtdel")
+        FRequest.Add "AppDateB", .Value("fAppDateB")
+        FRequest.Add "AppDateE", .Value("fAppDateE")
+        FRequest.Add "AppExecDateB", .Value("fAppExecDateB")
+        FRequest.Add "AppExecDateE", .Value("fAppExecDateE")
+        FRequest.Add "Loop_All", .Value("fLoop_ALL")
+        FRequest.Add "Loop_Delay", .Value("fLoop_Delay")
+
+        Filter=true
+      End If
+    End With
+  End If
+End Function
+
+Sub Del
+  vObjID=GridForm.Text("OBJID")
+  Set M=CreateObject("MMessages.UMessages")
+  If M.YesNoMsgBox("Вы действительно хотите удалить ячейку")=vbYes Then
+    #sql_smt{ begin gc.sdm$ibs.del_ibs(:vObjID); commit; end; }
+  End If
+End Sub
+
+Sub Close_Ibs
+  vObjID=GridForm.Text("OBJID")
+  Set M=CreateObject("MMessages.UMessages")
+  If M.YesNoMsgBox("Вы действительно хотите закрыть ячейку")=vbYes Then
+    #sql_smt{ begin gc.sdm$ibs.close_ibs(:vObjID,'Yes'); end; }
+  End If
+
+      
+          'Проверим остаток на счете аренды 47422, если есть то списываем полностью в доход          
+          #sql_smt{select gc.saldo.signed(a.s,a.cur)
+                         ,s.num_ibs
+                         ,to_char(s.date_open,'dd.mm.yyyy')
+                         ,s.num_dog 
+                         ,'Перечисление в доход остатка при досрочном закрытии ИБС № '||s.Num_Ibs||' по договору № '||s.Num_Dog||' от '||to_char(s.date_open,'dd.mm.yyyy')||'; '||ss.Name
+                               into :vOst_rent
+                                   ,:vNum_Ibs
+                                   ,:vDOPEN
+                                   ,:vNum_dog 
+                                   ,:vNazPlat
+                               from gc.sdm_ibs s
+                                   ,gc.acc a 
+                                   ,gc.subj ss
+                              where 1=1 
+                                and a.objid = s.objid_rent 
+                                and s.objid = :vObjid
+                                and ss.id = s.subj_id;
+                     }
+          IF vOst_Rent > 0 then 
+                  #sql_smt{begin :vUnp := gc.SDM$IBS.VNEB_KEY_CREATE_DOC(:vObjID,'CLOSE',null); end;}
+                  #sql_smt{begin :pUnp := gc.sdm$ibs.income_ibs(:vObjid,:vOst_Rent,null,null,sysdate,:vNazPlat,:vUnp); end;} 
+          ELSE
+                  #sql_smt{begin :vUnp := gc.SDM$IBS.VNEB_KEY_CREATE_DOC(:vObjID,'CLOSE',null); end;}
+          END if
+         ' If OraExecPLSQL(False, vSql, "vObjID",vObjID,"vUNP",vUNP,"pUnp",pUnp) Then
+            Set MDoc = CreateObject("MDocum.UDocum")
+            If MDoc.AskConfirmDocs(vUnp,"Сформировать пачку документов?") Then
+              #sql_smt{ gc.p_support.arm_start(); commit;
+                         gc.jour_pack.add_to_journal('SDMIBS',:vObjID,'SDMIBS_DOCUM','K','','UNP-'||:vUnp||' Проводка по внебалансу (закрытие)');
+                       insert into gc.sdm$ibs_docum
+                       select :vObjID,:vUnp,'Проводка по внебалансу (закрытие)' from dual;
+                       commit;
+                       }
+            Else
+            #sql_smt{ gc.p_support.arm_start(); rollback; }
+            End If
+        '  End If
+
+
+End Sub
+
+Sub DEBT_DEPOSIT
+    vObjID=GridForm.Text("OBJID")
+    vSubjId=GridForm.Text("SUBJ_ID")
+    vSubjName=GridForm.Text("Subj_Name")
+    vDeposit=GridForm.Text("Deposit")
+    vNns=GridForm.Text("NNS")
+    vOBJID_DEPOSIT=GridForm.Text("OBJID_DEPOSIT")
+
+    VBCode=Request("VB_SOURCE")
+    Set M = CreateObject("MScripts.UScripts")
+    Set MS=CreateObject("MMessages.UMessages")
+
+#sql_smt{
+SELECT GC.SALDO.SIGNED(A.S,A.CUR)
+INTO :VSUM
+FROM  GC.NNS_LIST N
+     ,GC.ACC A
+WHERE 1=1
+  AND N.NNS = :vOBJID_DEPOSIT
+  AND A.S = N.S;
+EXCEPTION WHEN NO_DATA_FOUND THEN 
+    :vSUM:=0;
+}
+
+#sql_smt{
+SELECT VALUE 
+    INTO :vQUALS_DEPOSIT 
+FROM GC.SDM$IBS_GLOBAL_QUALS
+WHERE 1=1
+  AND NAME_QUAL = 'Контролировать доступность кнопки "Списать залог"';
+}
+
+#sql_smt{
+SELECT VALUE 
+    INTO :vQUALS_SUMM 
+FROM GC.SDM$IBS_GLOBAL_QUALS
+WHERE 1=1
+  AND NAME_QUAL = 'Запрет редактирования сумм при списании залога/аренды';
+}
+
+IF vDeposit = 0 AND vQUALS_DEPOSIT = "Действует" then
+  MS.ErrorMsgBox "По данной ячейке нет залога!"
+else
+  IF vSUM = vDeposit AND vQUALS_DEPOSIT = "Действует" then
+  MS.ErrorMsgBox "Залог уже списан в полном объеме!"  
+     else
+   '   IF vNns = "" then
+   '     MS.ErrorMsgBox "Не привязан счет для списания!"
+   '     Else
+
+#sql_smt{
+select 'Оплата залога за ключ от ИБС № '||s.Num_Ibs||' по договору № '||s.Num_Dog||' от '||to_char(s.date_open,'dd.mm.yyyy')||'; (с л/сч '||s.nns||') '||ss.name 
+into :vTex_Debt_Deposit
+from gc.sdm_ibs s
+    ,gc.subj ss 
+where 1=1
+  and s.Objid = :vObjid
+  and s.Subj_id = ss.id;
+}
+
+    RR=M.Obj2Long(Request)
+
+    Set CD=CreateObject("MDIALOG.CDIALOG")
+    vCDRef=M.Obj2Long(CD)
+    Request.Add "CDRef", vCDRef
+    Request.Add "SelectedSubj", vSubjId
+
+    With CD
+      .Caption = "Списать залог"
+      .FormName = "SDM$IBS_Issue"
+      .style = 16
+      .cmdCancel.Caption="Отмена"
+      .cmdOk.Caption="Списать"	
+      With .Group
+        .AddLabel .LabelConstr(True), "ID ячейки"
+        .AddTextBox .ControlConstr(), "ID ячейки", "vObjID", vObjID, 15, True, 2048
+
+        .AddLabel .LabelConstr(True), "ФИО Клиента (Владелец ячейки)"
+        .AddTextBox .ControlConstr(), "ФИО Клиента (Владелец ячейки)", "vSubjName", vSubjName, 30, True, 2048
+
+        With .AddGroup(.ControlConstr(1, True), 1, "Сумма залога")
+          .AddTextBox .ControlConstr(1, False), "Сумма залога", "vDeposit", vDeposit, 30, False, 2048 Or 2
+        IF vQUALS_SUMM = "Действует" THEN
+          .AddTextBox .ControlConstr(0), "", "vDeposit_Doc", vDeposit, 5, False, 2048
+        ELSE  
+          .AddTextBox .ControlConstr(0), "", "vDeposit_Doc", vDeposit, 5, False, 0
+        END IF  
+        End With
+
+        .AddLabel .LabelConstr(True), ""
+        .AddLabel .LabelConstr(False), "Счет ДТ: "
+     '   .AddTextBox .ControlConstr(), "Счет ДТ", "vNns", vNns, 30, True, 2048
+	    IF vNNS <> "" then
+         .AddOptionButton .ControlConstr(0,False), "NNS_MODE", "NNS_MODE", "Со счета "& vNNS, 1
+        END IF
+        IF vNNS = "" then
+         .AddOptionButton .ControlConstr(0,True), "CASH_MODE", "CASH_MODE", "Через кассу ", 1
+        ELSE
+       .AddOptionButton .ControlConstr(0,True), "CASH_MODE", "CASH_MODE", "Через кассу ", 0
+		END IF
+        .AddLabel .LabelConstr(True), ""
+        .AddLabel .LabelConstr(True), ""
+        .AddLabel .LabelConstr(True), "Счет КТ"
+        .AddTextBox .ControlConstr(), "Счет КТ", "vOBJID_DEPOSIT", vOBJID_DEPOSIT, 30, True, 2048
+
+        .AddLabel .LabelConstr(True), "Дата валютирования"
+        .AddDateTimePicker2 .ControlConstr(), "Дата валютирования", "vVltrDt", "dd/mm/yyyy hh:nn:ss", vVltrDt, False
+
+        .AddLabel .LabelConstr(True), "Назначение платежа"
+        .AddMutiLineTextBox .ControlConstr(3,True), "Назначение платежа", "vNazPlat", vTex_Debt_Deposit, 2000
+
+      End With
+      Do
+        If .Exec() Then
+          vObjID = .Value("vObjID")
+          vSubjName = .Value("vSubjName")
+          vDeposit = .Value("vDeposit")
+          vDeposit_Doc = .Value("vDeposit_Doc")
+          vNazPlat = .Value("vNazPlat")
+          vOBJID_DEPOSIT = .Value("vOBJID_DEPOSIT")
+          CASH_MODE = .Value("CASH_MODE")  
+          IF vNNS = "" THEN
+          NNS_MODE = "False"
+          ELSE
+          NNS_MODE = .Value("NNS_MODE")  
+          END IF
+          vVltrDt = .Value("vVltrDt")
+          vReceiverId = Request("SelectedSubj")
+          IF NNS_MODE = "True" or NNS_MODE = "Истина" Then
+          vSql="begin gc.p_support.arm_start(); :vUnp := gc.SDM$IBS.DEPT_DEPOSIT(:vObjID,:vDeposit_Doc,'810',:vNns,:vOBJID_DEPOSIT,to_date(:vVltrDt,'dd/mm/yyyy hh24:mi:ss'),:vNazPlat,'1'); end;"
+          ELSE
+          vSql="begin gc.p_support.arm_start(); :vUnp := gc.SDM$IBS.DEPT_DEPOSIT(:vObjID,:vDeposit_Doc,'810',null,:vOBJID_DEPOSIT,to_date(:vVltrDt,'dd/mm/yyyy hh24:mi:ss'),:vNazPlat,'2'); end;"
+          END IF
+          If OraExecPLSQL(False, vSql, "vObjID",vObjID,"vDeposit_Doc",vDeposit_Doc,"vNns",vNns,"vOBJID_DEPOSIT",vOBJID_DEPOSIT,"vVltrDt",vVltrDt,"vNazPlat",vNazPlat, "vUnp",vUnp) Then
+            Set MDoc = CreateObject("MDocum.UDocum")
+            If MDoc.AskConfirmDocs(vUnp,"Сформировать пачку документов?") Then
+              #sql_smt{ gc.p_support.arm_start(); commit;
+                         gc.jour_pack.add_to_journal('SDMIBS',:vOBJID,'SDMIBS_DOCUM','K','','UNP-'||:vUnp||' Списание залога');
+                       }
+             IF NNS_MODE = "True" or NNS_MODE = "Истина" then
+              MS.OkMsgBox "Документы отправлены в бухгалтерию!"
+             ELSE
+              MS.OkMsgBox "Документы отправлены в кассу!"
+             END IF
+              Exit Do
+            Else
+              #sql_smt{ rollback; }
+            End If
+          End If
+        Else
+          Exit Do
+        End If
+      Loop
+    End With
+     '  End IF
+    End IF
+End IF
+End Sub
+
+Sub DEBT_RENT
+    vObjID=GridForm.Text("OBJID")
+    vSubjId=GridForm.Text("SUBJ_ID")
+    vSubjName=GridForm.Text("Subj_Name")
+'    vTariff=GridForm.Text("Tariff")
+    vNns=GridForm.Text("NNS")
+    vOBJID_RENT=GridForm.Text("OBJID_RENT")
+
+    VBCode=Request("VB_SOURCE")
+    Set M = CreateObject("MScripts.UScripts")
+    Set MS=CreateObject("MMessages.UMessages")
+
+
+#sql_smt{
+select 'Оплата аренды индивидуального сейфа № '||s.Num_Ibs||' по Договору № '||s.Num_Dog||' от '||to_char(s.date_open,'dd.mm.yyyy')||' г. за период с '||to_char(s.date_open,'dd.mm.yyyy')||' по '||to_char(s.dfinal,'dd.mm.yyyy')||'; (с л/сч '||s.nns||') '||ss.name 
+      ,ibs_type
+      ,t.tariff_summ*t.period_int+nvl(deal_summ,0)
+      ,deal_summ
+      ,t.period_int
+      ,case when t.period_type = 'MONTH' then 'месяцев' 
+            when t.period_type = 'WEEK' then 'недель' 
+       else '' end
+      ,t.tariff_summ
+into :vTex_Rent
+    ,:ibs_type
+    ,:deal_summ
+    ,:deal
+    ,:period_int
+    ,:period_type
+    ,:vTariff
+from gc.sdm_ibs s
+    ,gc.subj ss 
+    ,gc.sdm$ibs_tariff t
+where 1=1
+  and s.Objid = :vObjid
+  and s.Subj_id = ss.id
+  and t.id = s.tariff_id;
+}
+
+    RR=M.Obj2Long(Request)
+
+    Set CD=CreateObject("MDIALOG.CDIALOG")
+    vCDRef=M.Obj2Long(CD)
+    Request.Add "CDRef", vCDRef
+    Request.Add "SelectedSubj", vSubjId
+
+    With CD
+      .Caption = "Списать аренду"
+      .FormName = "SDM$IBS_Issue"
+      .style = 16
+      .cmdCancel.Caption="Отмена"
+      .cmdOk.Caption="Списать"	
+      With .Group
+        .AddLabel .LabelConstr(True), "ID ячейки"
+        .AddTextBox .ControlConstr(), "ID ячейки", "vObjID", vObjID, 15, True, 2048
+
+        .AddLabel .LabelConstr(True), "ФИО Клиента (Владелец ячейки)"
+        .AddTextBox .ControlConstr(), "ФИО Клиента (Владелец ячейки)", "vSubjName", vSubjName, 30, True, 2048
+
+#sql_smt{
+SELECT VALUE 
+    INTO :vQUALS_RENT 
+FROM GC.SDM$IBS_GLOBAL_QUALS
+WHERE 1=1
+  AND NAME_QUAL = 'Запрет редактирования сумм при списании залога/аренды';
+}
+
+IF IBS_TYPE = "1" or IBS_TYPE = "2" then
+        With .AddGroup(.ControlConstr(1, True), 1, "Сумма аренды")
+          .AddTextBox .ControlConstr(0), "Инфо", "INFO", "Тариф "& vTariff & " * на " & period_int & " " & period_type, 100, False, 2048 Or 2
+          .AddTextBox .ControlConstr(1, False), "Сумма аренды", "vTariff", DEAL_SUMM, 30, False, 2048 Or 2
+IF vQUALS_RENT = "Действует" THEN
+          .AddTextBox .ControlConstr(0), "", "vTariff_Doc", DEAL_SUMM, 5, False, 2048
+ELSE
+          .AddTextBox .ControlConstr(0), "", "vTariff_Doc", DEAL_SUMM, 5, False, 0
+END IF
+        End With
+END IF
+
+IF IBS_TYPE = "3" or IBS_TYPE = "4" THEN
+        With .AddGroup(.ControlConstr(1, True), 1, "Сумма аренды ("& vTariff & ") + Сумма за сделку (" & deal & ")")
+          .AddTextBox .ControlConstr(0), "Инфо", "INFO", "Тариф "& vTariff & " * на " & period_int & " " & period_type & " + сумма сделки "& deal, 100, False, 2048 Or 2
+          .AddTextBox .ControlConstr(1, False), "Сумма аренды", "vTariff", DEAL_SUMM, 30, False, 2048 Or 2
+
+IF vQUALS_RENT = "Действует" THEN
+          .AddTextBox .ControlConstr(0), "", "vTariff_Doc", DEAL_SUMM, 5, False, 2048
+ELSE
+          .AddTextBox .ControlConstr(0), "", "vTariff_Doc", DEAL_SUMM, 5, False, 0
+END IF
+        End With
+END IF
+        .AddLabel .LabelConstr(True), ""
+        .AddLabel .LabelConstr(False), "Счет ДТ: "
+     '   .AddTextBox .ControlConstr(), "Счет ДТ", "vNns", vNns, 30, True, 2048
+IF vNNS <> "" then
+       .AddOptionButton .ControlConstr(0,False), "NNS_MODE", "NNS_MODE", "Со счета "& vNNS, 1
+END IF
+IF vNNS = "" then
+       .AddOptionButton .ControlConstr(0,True), "CASH_MODE", "CASH_MODE", "Через кассу ", 1
+ELSE
+       .AddOptionButton .ControlConstr(0,True), "CASH_MODE", "CASH_MODE", "Через кассу ", 0
+END IF
+
+        .AddLabel .LabelConstr(True), ""
+        .AddLabel .LabelConstr(True), ""
+        .AddLabel .LabelConstr(False), "Счет КТ"
+        .AddTextBox .ControlConstr(), "Счет КТ", "vOBJID_RENT", vOBJID_RENT, 30, True, 2048
+
+        .AddLabel .LabelConstr(True), "Дата валютирования"
+        .AddDateTimePicker2 .ControlConstr(), "Дата валютирования", "vVltrDt", "dd/mm/yyyy hh:nn:ss", vVltrDt, False
+
+        .AddLabel .LabelConstr(True), "Назначение платежа"
+        .AddMutiLineTextBox .ControlConstr(3,True), "Назначение платежа", "vNazPlat", vTex_Rent, 2000
+
+      End With
+      Do
+        If .Exec() Then
+          vObjID = .Value("vObjID")
+          vSubjName = .Value("vSubjName")
+          vTariff = .Value("vTariff")
+          vTariff_Doc = .Value("vTariff_Doc")
+          vNazPlat = .Value("vNazPlat")
+          vOBJID_RENT = .Value("vOBJID_RENT")
+          CASH_MODE = .Value("CASH_MODE")  
+          IF vNNS = "" THEN
+          NNS_MODE = "False"
+          ELSE
+          NNS_MODE = .Value("NNS_MODE")  
+          END IF
+          vVltrDt = .Value("vVltrDt")
+          vReceiverId = Request("SelectedSubj")
+          IF NNS_MODE = "True" or NNS_MODE = "Истина" Then
+          vSql="begin :vUnp := gc.SDM$IBS.DEPT_RENT(:vObjID,:vTariff_Doc,'810',:vNns,:vOBJID_RENT,to_date(:vVltrDt,'dd/mm/yyyy hh24:mi:ss'),:vNazPlat,'1'); end;"
+          ELSE
+          vSql="begin :vUnp := gc.SDM$IBS.DEPT_RENT(:vObjID,:vTariff_Doc,'810',null,:vOBJID_RENT,to_date(:vVltrDt,'dd/mm/yyyy hh24:mi:ss'),:vNazPlat,'2'); end;"
+          END IF
+          If OraExecPLSQL(False, vSql, "vObjID",vObjID,"vTariff_Doc",vTariff_Doc,"vNns",vNns,"vOBJID_RENT",vOBJID_RENT,"vVltrDt",vVltrDt,"vNazPlat",vNazPlat, "vUnp",vUnp) Then
+            Set MDoc = CreateObject("MDocum.UDocum")
+            If MDoc.AskConfirmDocs(vUnp,"Сформировать пачку документов?") Then
+              #sql_smt{ gc.p_support.arm_start(); commit;
+                         gc.jour_pack.add_to_journal('SDMIBS',:vOBJID,'SDMIBS_DOCUM','K','','UNP-'||:vUnp||' Списание аренды');
+                       }
+             IF NNS_MODE = "True" or NNS_MODE = "Истина" then
+              MS.OkMsgBox "Документы отправлены в бухгалтерию!"
+             ELSE
+              MS.OkMsgBox "Документы отправлены в кассу!"
+             END IF
+              Exit Do
+            Else
+              #sql_smt{ rollback; }
+            End If
+          End If
+        Else
+          Exit Do
+        End If
+      Loop
+    End With
+End Sub
+
+
+Sub DEBT_OFF_DEPOSIT
+    vObjID=GridForm.Text("OBJID")
+    vSubjId=GridForm.Text("SUBJ_ID")
+    vSubjName=GridForm.Text("Subj_Name")
+    vNns=GridForm.Text("NNS")
+    vOBJID_DEPOSIT=GridForm.Text("OBJID_DEPOSIT")
+
+    VBCode=Request("VB_SOURCE")
+    Set M = CreateObject("MScripts.UScripts")
+    Set MS=CreateObject("MMessages.UMessages")
+    Set Mk=CreateObject("MMessages.UMessages")
+
+#sql_smt{
+SELECT GC.SALDO.SIGNED(A.S,A.CUR)
+INTO :VSUM
+FROM  GC.NNS_LIST N
+     ,GC.ACC A
+WHERE 1=1
+  AND N.NNS = :vOBJID_DEPOSIT
+  AND A.S = N.S;
+EXCEPTION WHEN NO_DATA_FOUND THEN 
+    :vSUM:=0;
+}
+IF VSUM = 0 THEN
+MS.ErrorMsgBox "НЕЧЕГО СПИСЫВАТЬ!"
+ELSE
+
+#sql_smt{
+select 'Возврат залога за ключ от ИБС № '||s.Num_Ibs||' по договору № '||s.Num_Dog||' от '||to_char(s.date_open,'dd.mm.yyyy')||'; (с л/сч '||s.nns||') '||ss.name 
+into :vTex_Debt_OffDeposit
+from gc.sdm_ibs s
+    ,gc.subj ss 
+where 1=1
+  and s.Objid = :vObjid
+  and s.Subj_id = ss.id;
+}
+
+#sql_smt{
+SELECT GC.SALDO.SIGNED(A.S,A.CUR)
+INTO :OST_RENT
+      FROM GC.SDM_IBS S
+          ,GC.ACC A
+WHERE 1=1
+  AND S.OBJID_RENT = A.OBJID
+  AND S.OBJID = :vOBJID; 
+}
+
+    RR=M.Obj2Long(Request)
+
+    Set CD=CreateObject("MDIALOG.CDIALOG")
+    vCDRef=M.Obj2Long(CD)
+    Request.Add "CDRef", vCDRef
+    Request.Add "SelectedSubj", vSubjId
+
+    With CD
+      .Caption = "Возврат залога"
+      .FormName = "SDM$IBS_Issue"
+      .style = 16
+      .cmdCancel.Caption="Отмена"
+      .cmdOk.Caption="Выполнить"	
+      With .Group
+        .AddLabel .LabelConstr(True), "ID ячейки"
+        .AddTextBox .ControlConstr(), "ID ячейки", "vObjID", vObjID, 15, True, 2048
+
+        .AddLabel .LabelConstr(True), "ФИО Клиента (Владелец ячейки)"
+        .AddTextBox .ControlConstr(), "ФИО Клиента (Владелец ячейки)", "vSubjName", vSubjName, 30, True, 2048
+
+        With .AddGroup(.ControlConstr(1, True), 1, "Сумма возврата")
+          .AddTextBox .ControlConstr(1, False), "Сумма возврата", "VSUM", VSUM, 30, False, 2048 Or 2
+        End With
+
+        .AddLabel .LabelConstr(True), "Счет ДТ"
+        .AddTextBox .ControlConstr(), "Счет ДТ", "vOBJID_DEPOSIT", vOBJID_DEPOSIT, 30, True, 2048
+
+        .AddLabel .LabelConstr(True), ""
+        .AddLabel .LabelConstr(False), "Счет КТ: "
+     
+	  IF vNNS <> "" then
+        .AddOptionButton .ControlConstr(0,False), "NNS_MODE", "NNS_MODE", "На счет "& vNNS, 1
+	  END IF
+        IF vNNS = "" then
+       .AddOptionButton .ControlConstr(0,True), "CASH_MODE", "CASH_MODE", "Через кассу ", 1
+        ELSE
+       .AddOptionButton .ControlConstr(0,True), "CASH_MODE", "CASH_MODE", "Через кассу ", 0
+        END IF
+
+        .AddLabel .LabelConstr(True), "Дата валютирования"
+        .AddDateTimePicker2 .ControlConstr(), "Дата валютирования", "vVltrDt", "dd/mm/yyyy hh:nn:ss", vVltrDt, False
+
+        .AddLabel .LabelConstr(True), "Назначение платежа"
+        .AddMutiLineTextBox .ControlConstr(3,True), "Назначение платежа", "vNazPlat", vTex_Debt_OffDeposit, 2000
+
+      End With
+      Do
+        If .Exec() Then
+          vObjID = .Value("vObjID")
+          vSubjName = .Value("vSubjName")
+          vSUM= .Value("vSUM")
+          vNazPlat = .Value("vNazPlat")
+          vOBJID_DEPOSIT = .Value("vOBJID_DEPOSIT")
+          CASH_MODE = .Value("CASH_MODE")  
+          IF vNNS = "" THEN
+          NNS_MODE = "False"
+          ELSE
+          NNS_MODE = .Value("NNS_MODE")  
+          END IF
+          vVltrDt = .Value("vVltrDt")
+          vReceiverId = Request("SelectedSubj")
+
+IF OST_RENT > 0 THEN
+Mk.Okmsgbox "В пачку документов будет добавлена операция по списанию в доход остатка со счета аренды"
+END IF
+
+          IF NNS_MODE = "True" or NNS_MODE = "Истина" Then
+          vSql="begin :vUnp := gc.SDM$IBS.OFF_DEPOSIT(:vObjID,:vSUM,'810',:vNns,:vOBJID_DEPOSIT,to_date(:vVltrDt,'dd/mm/yyyy hh24:mi:ss'),:vNazPlat,'1'); end;"
+          ELSE
+          vSql="begin :vUnp := gc.SDM$IBS.OFF_DEPOSIT(:vObjID,:vSUM,'810',null,:vOBJID_DEPOSIT,to_date(:vVltrDt,'dd/mm/yyyy hh24:mi:ss'),:vNazPlat,'2'); end;"
+          END IF
+          If OraExecPLSQL(False, vSql, "vObjID",vObjID,"vSUM",vSUM,"vNns",vNns,"vOBJID_DEPOSIT",vOBJID_DEPOSIT,"vVltrDt",vVltrDt,"vNazPlat",vNazPlat, "vUnp",vUnp) Then
+            Set MDoc = CreateObject("MDocum.UDocum")
+            If MDoc.AskConfirmDocs(vUnp,"Сформировать пачку документов?") Then
+              #sql_smt{ gc.p_support.arm_start(); commit;
+                         gc.jour_pack.add_to_journal('SDMIBS',:vOBJID,'SDMIBS_DOCUM','K','','UNP-'||:vUnp||' Возврат залога');
+                       }        
+              Exit Do
+
+            Else
+              #sql_smt{ rollback; }
+            End If
+          End If
+        Else
+          Exit Do
+        End If
+      Loop
+    End With
+   End IF
+End Sub
+
+
+Sub OVERDUE
+    vObjID=GridForm.Text("OBJID")
+    vSubjId=GridForm.Text("SUBJ_ID")
+    vSubjName=GridForm.Text("Subj_Name")
+    vNns=GridForm.Text("NNS")
+    vOBJID_DEPOSIT=GridForm.Text("OBJID_DEPOSIT")
+
+    VBCode=Request("VB_SOURCE")
+    Set M = CreateObject("MScripts.UScripts")
+    Set MS=CreateObject("MMessages.UMessages")
+    Set Mk=CreateObject("MMessages.UMessages")
+
+#sql_smt{
+--Если ячейка пролонгируется, то просрочку считаем как разница дат DFINAL and SYSDATE-1
+--Если ячейка закрывается, то просрочку считаем как разница дат DFINAL and SYSDATE
+SELECT TRUNC(SYSDATE)-S.DFINAL CNT_DAYDELAY_CLOSE
+      ,100*(TRUNC(SYSDATE)-S.DFINAL) SUMM_DELAY_CLOSE
+      ,TRUNC(SYSDATE)-S.DFINAL-1 CNT_DAYDELAY_PROLONG
+      ,100*(TRUNC(SYSDATE)-S.DFINAL-1) SUMM_DELAY_PROLONG
+      ,CASE WHEN A.FILIAL = 'M' AND A.OTDEL = 0 THEN '70601810200352830151'
+            WHEN A.FILIAL = 'M' AND A.OTDEL = '1247202' THEN '70601810300142830151'
+            WHEN A.FILIAL = 'M' AND A.OTDEL = '3012703215' THEN '70601810307352830151'
+            WHEN A.FILIAL = 'M' AND A.OTDEL = '2858299385' THEN '70601810110002830151'
+            WHEN A.FILIAL = 'M' AND A.OTDEL = '2895452858' THEN '70601810602002830151'
+            WHEN A.FILIAL = 'M' AND A.OTDEL = '2719862922' THEN '70601810709002830151'
+            WHEN A.FILIAL = '1788104' THEN '70601810804352830100'
+            WHEN A.FILIAL = '1787601' THEN '70601810103352830101'
+            WHEN A.FILIAL = '1228080' THEN '70601810305352830151'
+        ELSE '' END
+       
+INTO :CNT_DAYDELAY_CLOSE
+    ,:SUMM_DELAY_CLOSE
+    ,:CNT_DAYDELAY_PROLONG
+    ,:SUMM_DELAY_PROLONG
+    ,:vINCOME
+FROM  GC.SDM_IBS S
+     ,GC.ACC A
+WHERE 1=1
+  AND S.OBJID = :vOBJID
+  AND S.OBJID_RENT = A.OBJID;
+}
+
+#sql_smt{
+--select 'Списание просрочки по договору № '||s.Num_Dog||' от '||to_char(s.date_open,'dd.mm.yyyy')||'; (с л/сч '||s.nns||') '||ss.name 
+select 'Оплата за несоблюдение срока аренды ИБС № '||s.Num_Ibs||' по договору № '||s.Num_Dog||' от '||to_char(s.date_open,'dd.mm.yyyy')||' за период с '||to_char(s.dfinal,'dd.mm.yyyy')||' по '||to_char(sysdate,'dd.mm.yyyy')||' '||ss.name
+
+into :vTex_Debt_OffDeposit
+from gc.sdm_ibs s
+    ,gc.subj ss 
+where 1=1
+  and s.Objid = :vObjid
+  and s.Subj_id = ss.id;
+}
+
+#sql_smt{
+SELECT GC.SALDO.SIGNED(A.S,A.CUR)
+INTO :OST_RENT
+      FROM GC.SDM_IBS S
+          ,GC.ACC A
+WHERE 1=1
+  AND S.OBJID_RENT = A.OBJID
+  AND S.OBJID = :vOBJID; 
+}
+
+
+
+    RR=M.Obj2Long(Request)
+
+    Set CD=CreateObject("MDIALOG.CDIALOG")
+    vCDRef=M.Obj2Long(CD)
+    Request.Add "CDRef", vCDRef
+    Request.Add "SelectedSubj", vSubjId
+
+    With CD
+      .Caption = "Списание просрочки"
+      .FormName = "SDM$IBS_Issue"
+      .style = 16
+      .cmdCancel.Caption="Отмена"
+      .cmdOk.Caption="Выполнить"	
+      With .Group
+        .AddLabel .LabelConstr(True), "ID ячейки"
+        .AddTextBox .ControlConstr(), "ID ячейки", "vObjID", vObjID, 15, True, 2048
+
+        .AddLabel .LabelConstr(True), "ФИО Клиента (Владелец ячейки)"
+        .AddTextBox .ControlConstr(), "ФИО Клиента (Владелец ячейки)", "vSubjName", vSubjName, 30, True, 2048
+
+ '         .AddLabel .LabelConstr(False), "Количество просроченных дней"
+ '         .AddTextBox .ControlConstr(1, True), "Количество просроченных дней", "INFO_DELAY", CNT_DAYDELAY, 30, False,2
+ '       With .AddGroup(.ControlConstr(1, True), 1, "Сумма просрочки")
+ '         .AddTextBox .ControlConstr(1, False), "Сумма просрочки", "SUMM_DELAY", SUMM_DELAY, 30, False,2
+ '       End With
+
+         Set DT = .AddGroup(.ControlConstr(1,True),0)
+         With DT
+        .AddLabel .LabelConstr(True), "Счет ДТ:"
+	  IF vNNS <> "" then
+        .AddOptionButton .ControlConstr(0,False), "NNS_MODE_DELAY", "NNS_MODE_DELAY", "Со счета "& vNNS, 1
+	  END IF
+        IF vNNS = "" then
+       .AddOptionButton .ControlConstr(0,True), "CASH_MODE_DELAY", "CASH_MODE_DELAY", "Через кассу ", 1
+        ELSE
+       .AddOptionButton .ControlConstr(0,True), "CASH_MODE_DELAY", "CASH_MODE_DELAY", "Через кассу ", 0
+        END IF
+        END With
+
+        .AddLabel .LabelConstr(True), "Счет КТ"
+        .AddTextBox .ControlConstr(), "Счет КТ", "vINCOME", vINCOME, 30, True, 2048
+
+        .AddLabel .LabelConstr(True), "Дата валютирования"
+        .AddDateTimePicker2 .ControlConstr(), "Дата валютирования", "vVltrDt", "dd/mm/yyyy hh:nn:ss", vVltrDt, False
+
+        .AddLabel .LabelConstr(True), "Назначение платежа"
+        .AddMutiLineTextBox .ControlConstr(3,True), "Назначение платежа", "vNazPlat", vTex_Debt_OffDeposit, 2000
+
+         Set IBSCloseIBS = .AddOptionButton(.ControlConstr(0,False), "IBS_CLOSE_IBS", "IBS_CLOSE_IBS", "Закрыть ячейку", 0)
+         Set ProlongIBS = .AddOptionButton(.ControlConstr(0,False), "IBS_PROLONG_IBS", "IBS_PROLONG_IBS", "Пролонгировать ячейку", 0)
+Set CloseIBSBox= .AddGroup(.ControlConstr(1,True),0)
+With CloseIBSBox
+DateEnd = date
+        .AddLabel .LabelConstr(), "Закрытия"
+        .AddDateTimePicker2 .ControlConstr(0,True) , "Дата закрытия", "DATE_CLOSE_IBS", "dd-mm-yyyy",DateEnd, date_close_ibs,,1,,1
+          .AddLabel .LabelConstr(False), "Количество просроченных дней"
+          .AddTextBox .ControlConstr(1, True), "Количество просроченных дней", "INFO_DELAY_1", CNT_DAYDELAY_CLOSE, 30, False, 2048 Or 2
+        With .AddGroup(.ControlConstr(1, True), 1, "Сумма просрочки")
+          .AddTextBox .ControlConstr(1, False), "Сумма просрочки", "SUMM_DELAY_CLOSE", SUMM_DELAY_CLOSE, 30, False, 2048 Or 2
+        End With  
+        Set MODE_CLOSE = .AddGroup(.ControlConstr(1,True),0)
+        With MODE_CLOSE
+       .AddOptionButton .ControlConstr(0,True), "NNS_MODE_CLOSE", "NNS_MODE_CLOSE", "Вернуть залог на счет "& vNNS, 1
+       .AddOptionButton .ControlConstr(0,True), "CASH_MODE_CLOSE", "CASH_MODE_CLOSE", "Вернуть залог через кассу ", 0 
+       END With
+End With
+IBSCloseIBS.LinkValue CloseIBSBox, "Visible"
+
+
+Set ProlongIBSBox = .AddGroup(.ControlConstr(1,True),0)
+With ProlongIBSBox
+          .AddLabel .LabelConstr(False), "Количество просроченных дней"
+          .AddTextBox .ControlConstr(1, True), "Количество просроченных дней", "INFO_DELAY_2", CNT_DAYDELAY_PROLONG, 30, False, 2048 Or 2
+        With .AddGroup(.ControlConstr(1, True), 1, "Сумма просрочки")
+          .AddTextBox .ControlConstr(1, False), "Сумма просрочки", "SUMM_DELAY_PROLONG", SUMM_DELAY_PROLONG, 30, False, 2048 Or 2
+        End With
+Set WeekBox = .AddOptionButton(.ControlConstr(0,False), "PERIOD_WEEK", "PERIOD_WEEK", "В неделях", 0)
+Set PeriodBox = .AddOptionButton(.ControlConstr(0,False), "PERIOD_MONTH", "PERIOD_MONTH", "В месяцах", 0)
+Set GrpWeekBox = .AddGroup(.ControlConstr(1,True),0)
+With GrpWeekBox 
+        .AddLabel .LabelConstr(), "Количество недель"
+        .AddComboBoxArray .ControlConstr(0,False) , "Количество недель", "PERIODWEEK_IBS", "","1,1;2,2", date_close,,0
+End With
+WeekBox.LinkValue GrpWeekBox, "Visible"
+
+
+Set GrpPeriodBox = .AddGroup(.ControlConstr(1,True),0)
+With GrpPeriodBox 
+        .AddLabel .LabelConstr(False), "                                                                     Количество месяцев"
+        .AddTextBox .ControlConstr(0, False)   , "Количество месяцев (число)", "PERIOD_IBS", "", 2, False, 8192 or 131072
+End With
+        Set MODE_PROLONG = .AddGroup(.ControlConstr(1,True),0)
+        With MODE_PROLONG
+       .AddOptionButton .ControlConstr(0,True), "NNS_MODE_PROLONG", "NNS_MODE_PROLONG", "Cо счета "& vNNS, 1
+       .AddOptionButton .ControlConstr(0,True), "CASH_MODE_PROLONG", "CASH_MODE_PROLONG", "Через кассу ", 0 
+       END With
+
+End With
+WeekBox.LinkValue GrpWeekBox, "Visible"
+PeriodBox.LinkValue GrpPeriodBox, "Visible"
+ProlongIBS.LinkValue ProlongIBSBox, "Visible"
+
+
+
+      End With
+      Do
+
+        If .Exec() Then
+          vObjID = .Value("vObjID")
+          vSubjName = .Value("vSubjName")
+          vSUMM_DELAY_CLOSE= .Value("SUMM_DELAY_CLOSE")
+          vSUMM_DELAY_PROLONG = .Value("SUMM_DELAY_PROLONG")
+          vNazPlat = .Value("vNazPlat")
+          IF vNNS <> "" THEN
+          vNNS_MODE_DELAY = .Value("NNS_MODE_DELAY")
+          ELSE
+          vNNS_MODE_DELAY = "False"
+          END IF 
+          vCASH_MODE_DELAY = .Value("CASH_MODE_DELAY")
+          vNNS_MODE_CLOSE = .Value("NNS_MODE_CLOSE")
+          vCASH_MODE_CLOSE = .Value("CASH_MODE_CLOSE")
+          vNNS_MODE_PROLONG = .Value("NNS_MODE_PROLONG")
+          vCASH_MODE_PROLONG = .Value("CASH_MODE_PROLONG")
+          vVltrDt = .Value("vVltrDt")
+          vReceiverId = Request("SelectedSubj")
+          PROLONG_IBS = .Value("IBS_PROLONG_IBS")
+          IBS_CLOSE_IBS = .Value("IBS_CLOSE_IBS")
+          PERIOD_IBS = .Value("PERIOD_IBS")
+          PERIODWEEK_IBS = .Value("PERIODWEEK_IBS")
+          PERIOD_WEEK= .Value("PERIOD_WEEK")
+          PERIOD_MONTH = .Value("PERIOD_MONTH")
+
+'Определяем как будем списывать/возвращить/пролонгировать через кассу или нет
+IF vNNS_MODE_DELAY = "True" or vNNS_MODE_DELAY = "Истина" Then
+MODE_DELAY = "1"
+ELSE
+MODE_DELAY = "2"
+END IF
+
+IF vNNS_MODE_CLOSE = "True" or vNNS_MODE_CLOSE = "Истина" Then
+MODE_CLOSE = "1"
+ELSE
+MODE_CLOSE = "2"
+END IF
+
+IF vNNS_MODE_PROLONG = "True" or vNNS_MODE_PROLONG = "Истина" Then
+MODE_PROLONG = "1"
+ELSE
+MODE_PROLONG = "2"
+END IF
+
+'Передаем в процедуру открытия тип периода, и интервал. Дата закрытия начитывается в процедуре gc.sdm$ibs.add_ibs
+IF (PERIOD_WEEK = "True" or PERIOD_WEEK = "Истина") THEN
+PERIOD_TYPE = "WEEK"
+PERIOD_INT = PERIODWEEK_IBS
+ELSEIF (PERIOD_MONTH = "True" or PERIOD_MONTH = "Истина") THEN
+PERIOD_TYPE = "MONTH"
+PERIOD_INT = PERIOD_IBS
+ELSE 
+PERIOD_TYPE = "CLOSE"
+END IF
+
+IF (PROLONG_IBS = "False" or PROLONG_IBS = "Ложь") AND (IBS_CLOSE_IBS = "False" or IBS_CLOSE_IBS = "Ложь") then
+MS.ErrorMsgBox "Не заполнены все параметры на форме (пролонгация/закрытие ячейки)"
+Exit do
+End IF
+
+'Проверка отделения, в которой открыта ячейка и период (неделя/месяц)
+'Ячейки в ГО открываются минимум  на месяц
+IF (PROLONG_IBS = "True" or PROLONG_IBS = "Истина") Then
+#sql_smt{
+    SELECT CASE WHEN S.FILIAL = '"СДМ-БАНК" (ПАО)' AND S.OTDEL = 'ОТДЕЛЕНИЕ "ЦЕНТРАЛЬНОЕ"' THEN '1'
+                ELSE '0' END  
+           INTO :PROV_OTD_PERIOD
+          FROM GC.SDM_IBS S
+         WHERE 1=1
+           AND S.OBJID = :vObjID;
+}
+IF PROV_OTD_PERIOD = "1" and (PERIOD_WEEK = "True" or PERIOD_WEEK = "Истина") THEN
+MS.ErrorMsgBox "Пролонгация ячейки в ГО возможна минимум на месяц"
+Exit do
+END IF
+END IF
+
+IF OST_RENT > 0 THEN
+Mk.Okmsgbox "В пачку документов будет добавлена операция по списанию в доход остатка со счета аренды"
+END IF
+
+'Если ячейка пролонгируется, то просрочку считаем как разница дат DFINAL and SYSDATE-1
+IF (PROLONG_IBS = "True" or PROLONG_IBS = "Истина") THEN 
+vSUMM_DELAY = vSUMM_DELAY_PROLONG
+ELSE
+'Если ячейка закрывается, то просрочку считаем как разница дат DFINAL and SYSDATE
+vSUMM_DELAY = vSUMM_DELAY_CLOSE
+END IF
+
+          vSql="begin :vUnp := gc.SDM$IBS.OVERDUE(:vObjID,:vSUMM_DELAY,'810',:vNns,:vINCOME,to_date(:vVltrDt,'dd/mm/yyyy hh24:mi:ss'),:vNazPlat,:PERIOD_TYPE,:PERIOD_INT,:MODE_DELAY,:MODE_CLOSE,:MODE_PROLONG); end;"
+          If OraExecPLSQL(False, vSql, "vObjID",vObjID,"vSUMM_DELAY",vSUMM_DELAY,"vNns",vNns,"vINCOME",vINCOME,"vVltrDt",vVltrDt,"vNazPlat",vNazPlat, "vUnp",vUnp,"PERIOD_TYPE",PERIOD_TYPE,"PERIOD_INT",PERIOD_INT,"MODE_DELAY",MODE_DELAY,"MODE_CLOSE",MODE_CLOSE,"MODE_PROLONG",MODE_PROLONG) Then
+            Set MDoc = CreateObject("MDocum.UDocum")
+            If MDoc.AskConfirmDocs(vUnp,"Сформировать пачку документов?") Then
+              #sql_smt{ gc.p_support.arm_start(); commit;
+                         gc.jour_pack.add_to_journal('SDMIBS',:vOBJID,'SDMIBS_DOCUM','K','','UNP-'||:vUnp||' Списание просрочки');
+                       insert into gc.sdm$ibs_docum
+                       select :vOBJID,:vUnp,'Списание просрочки' from dual;
+                       commit;
+                       }
+              IF PERIOD_TYPE = "CLOSE" THEN
+              #sql_smt{ gc.p_support.arm_start(); 
+                         gc.SDM$IBS.CLOSE_IBS(:vOBJID,'No'); commit;
+                       }
+              Mk.Okmsgbox "Ячейка закрыта"  
+              END IF            
+              IF PERIOD_TYPE = "WEEK" THEN
+              Mk.Okmsgbox "Ячейка пролонгирована на " & PERIOD_INT & " недели"
+              END IF 
+              IF PERIOD_TYPE = "MONTH" THEN
+              Mk.Okmsgbox "Ячейка пролонгирована на " & PERIOD_INT & " месяцев"
+              END IF 
+              Exit Do
+            Else
+            #sql_smt{ gc.p_support.arm_start(); rollback; }
+            End If
+          End If
+        Else
+          Exit Do
+        End If
+
+      Loop
+
+    End With
+
+End Sub
+
+
+
+Sub OnUpdateCom
+  vID=GridForm.Text("SUBJ_ID")
+  vReadOnly=GridForm.Text("DATE_CLOSE")
+  vUser_Del=GridForm.Text("USER_DEL")
+  vObjID=GridForm.Text("OBJID")
+  vOBJID_DEPOSIT=GridForm.Text("OBJID_DEPOSIT")
+  vOBJID_RENT=GridForm.Text("OBJID_RENT")
+  vOBJID_91202=GridForm.Text("OBJID_91202")
+  vOBJID_91203=GridForm.Text("OBJID_91203")
+  vUSER_CLOSE=GridForm.Text("USER_CLOSE")
+  vDFINAL=GridForm.Text("DFINAL")
+  vDOPEN=GridForm.Text("DATE_OPEN")
+dim vPROV
+vPROV = 1
+  vCHECK=LEFT(vDFINAL,10)
+  IF vCHECK<date then
+  vPROV = 0
+  END IF
+
+#sql_smt{
+SELECT VALUE 
+    INTO :vQUALS_RENT 
+FROM GC.SDM$IBS_GLOBAL_QUALS
+WHERE 1=1
+  AND NAME_QUAL = 'Контролировать доступность кнопки "Списать аренду"';
+}
+
+
+  If Command.Key = "Edit" Then
+   Command.Enabled = (Len(vID) > 0)
+ '    Command.Enabled = (vID = "2961809085")
+  ElseIf Command.Key = "Del" Then
+    Command.Enabled = (Len(vID) > 0 And (vUser_Del="") and Len(vOBJID_DEPOSIT)=0 and len(vOBJID_RENT)=0 and len(vOBJID_91202)=0 and len(vOBJID_91203)=0)
+  ElseIf Command.Key = "INFO" Then
+    Command.Enabled = (Len(vID) > 0 And (vUser_Del="") and Len(vOBJID_DEPOSIT)>0 and len(vOBJID_RENT)>0 and len(vOBJID_91202)>0 and len(vOBJID_91203)>0)
+  ElseIf Command.Key = "Process" Then
+    Command.Enabled = (Len(vID) > 0 )
+  ElseIf Command.Key = "Journal" Then
+    Command.Enabled = (Len(vID) > 0)
+  ElseIf Command.Key = "DEBT_OFF_DEPOSIT" Then
+    Command.Enabled = (vPROV = 1)
+  End If
+'Если есть просрочка, то отключаем кнопки 
+  IF Command.Key = "DEBT_OFF_DEPOSIT" Then
+  Command.Enabled = (GridForm.Text("DELAY", RowN) = "Нет" )' "2961809085")
+  END IF
+  IF Command.Key = "DEBT_RENT" Then
+  Command.Enabled = (GridForm.Text("DELAY", RowN) = "Нет" )' "2961809085")
+  END IF
+  IF Command.Key = "DEBT_DEPOSIT" Then
+  Command.Enabled = (GridForm.Text("DELAY", RowN) = "Нет" )' "2961809085")
+  END IF
+  IF Command.Key = "CLOSE_IBS" Then
+  Command.Enabled = (GridForm.Text("DELAY", RowN) = "Нет" )' "2961809085")
+  END IF
+  IF Command.Key = "OVERDUE" Then
+  Command.Enabled = (GridForm.Text("DELAY", RowN) = "Да" )' "2961809085")
+  END IF
+  IF Command.Key = "PROLONG_RENT" Then
+  Command.Enabled = (GridForm.Text("DELAY", RowN) = "Нет" )' "2961809085")
+  END IF
+  IF Command.Key = "DEBT_DEPOSIT" Then
+  Command.Enabled = (GridForm.Text("DEPOSIT", RowN) <> "0" )
+  END IF
+  IF Command.Key = "DEBT_OFF_DEPOSIT" Then
+  Command.Enabled = (GridForm.Text("DEPOSIT", RowN) <> "0" )
+  END IF
+
+IF vQUALS_RENT = "Действует" THEN
+  IF Command.Key = "DEBT_RENT" Then
+  Command.Enabled = (left(GridForm.Text("DATE_OPEN", RowN),10) = left(date,10))
+  END IF
+END IF
+
+End Sub
+
+Sub OnUpdateComAcc
+
+End Sub
+
+
+
+
+Sub tariff_ibs
+
+
+filename="v:\reports\IBS\TARIFF_IBS.xls"
+
+Set xlsApp=CreateObject("Excel.Application")
+
+Set wkb = xlsApp.Workbooks.open(filename,,1)
+
+Set wks = wkb.ActiveSheet
+
+set ds=#sql_cur{
+SELECT SV.VALUE1
+      ,SV.VALUE2
+      ,SV.VALUE3
+      ,SV.VALUE4
+      ,SV.VALUE5
+      ,SV.VALUE6
+         FROM GC.SPRAV$TYPES S
+             ,GC.SPRAV$VALUES SV 
+WHERE 1=1
+  AND S.NAME = 'USER$TARIFF_SAFE'
+  AND SV.ID_TYPE = S.ID
+}
+
+
+x=4
+
+DO until ds.EOF
+	a01=ds.fields("VALUE1")
+	a02=ds.fields("VALUE2")
+	a03=ds.fields("VALUE3")
+      a04=ds.fields("VALUE4")
+      a05=ds.fields("VALUE5")
+      a06=ds.fields("VALUE6")
+
+
+      wks.Cells(x,1) = a01
+	wks.Cells(x,2) = a02
+	wks.Cells(x,3) = a03
+      wks.Cells(x,4) = a04
+      wks.Cells(x,5) = a05
+      wks.Cells(x,6) = a06 
+
+	x=x+1
+	ds.movenext
+loop
+	xlsApp.Visible = True
+
+
+End Sub
+
+
+Sub reestr_operjour
+
+
+filename="v:\reports\IBS\REESTR_OPERJOUR.xls"
+
+Set xlsApp=CreateObject("Excel.Application")
+
+Set wkb = xlsApp.Workbooks.open(filename,,1)
+
+Set wks = wkb.ActiveSheet
+
+
+    Set CD=CreateObject("MDIALOG.CDIALOG")
+
+    With CD
+      .Caption = "Период"
+      .FormName = "SDM$REESTR_OPERJOUR"
+      .style = 16
+      .cmdCancel.Caption="Отмена"
+      .cmdOk.Caption="Выбрать"	
+      With .Group
+
+        .AddLabel .LabelConstr(True), "Дата с"
+        .AddDateTimePicker2 .ControlConstr(), "Дата с", "DateSt", "dd/mm/yyyy hh:nn:ss", DateSt, False
+
+        .AddLabel .LabelConstr(True), "Дата по"
+        .AddDateTimePicker2 .ControlConstr(), "Дата по", "DateEn", "dd/mm/yyyy hh:nn:ss", DateEn, False
+
+      End With
+        If .Exec() Then
+          DateSt = .Value("DateSt")
+          DateEn = .Value("DateEn")
+        End if
+   End With
+
+set ds=#sql_cur{
+SELECT S.OBJID ID_IBS
+      ,SS.ID ID_CLIENT
+      ,SS.NAME
+      ,DECODE(NVL(H.VIP,0),0,'','VIP') VIP
+      ,CASE WHEN S.IBS_TYPE = '1' THEN 'Простое хранение'
+            WHEN S.IBS_TYPE = '2' THEN 'Ответственное хранение'
+            WHEN S.IBS_TYPE = '3' THEN 'Сделка простое хранение'
+            WHEN S.IBS_TYPE = '4' THEN 'Сделка ответсвенное хранение'
+            ELSE 'Не могу определить'
+            END TYPE_IBS      
+      ,L.NAME TYPE_OPER
+      ,'' DT
+      ,'' KT
+      ,'' NAZPLAT
+      ,NULL SUMM_OPER
+      ,NULL CUR
+      ,J.OLD_VAL
+      ,J.NEW_VAL
+      ,TO_CHAR(J.TIME,'DD.MM.YYYY HH24:MI:SS') DTIME
+      ,SU.NAME USERNAME
+
+         FROM GC.JOURNAL J
+             ,GC.LMSG L
+             ,GC.SDM_IBS S
+             ,GC.SUBJ SS
+             ,GC.HUMAN H
+             ,GC.SUBJ SU
+WHERE 1=1 
+  AND J.TIME BETWEEN TO_DATE(:DateST,'DD/MM/YYYY hh24:mi:ss')
+                 AND TO_DATE(:DateEn,'DD/MM/YYYY hh24:mi:ss')
+  AND J.OBJ_TYPE = 'SDMIBS'
+  AND L.ID = J.MSG_ID
+  AND L.NAME <> 'Формирование документа'
+  AND S.OBJID = J.OBJ_ID
+  AND SS.ID = S.SUBJ_ID 
+  AND H.SUBJ_ID = SS.ID 
+  AND SU.ID = J.USR
+  
+  UNION ALL
+  
+  SELECT S.OBJID ID_IBS
+        ,SS.ID ID_CLIENT
+        ,SS.NAME
+        ,DECODE(NVL(H.VIP,0),0,'','VIP') VIP  
+        ,CASE WHEN S.IBS_TYPE = '1' THEN 'Простое хранение'
+              WHEN S.IBS_TYPE = '2' THEN 'Ответственное хранение'
+              WHEN S.IBS_TYPE = '3' THEN 'Сделка простое хранение'
+              WHEN S.IBS_TYPE = '4' THEN 'Сделка ответсвенное хранение'
+              ELSE 'Не могу определить'
+              END TYPE_IBS        
+        ,CASE WHEN M.TEX LIKE '%НДС%' THEN 'НДС. '||D.TYPE_OPER ELSE D.TYPE_OPER END   
+        ,GC.NNS.GET(M.S_DT,M.CUR) DT
+        ,GC.NNS.GET(M.S_KT,M.CUR) KT 
+        ,M.TEX NAZPLAT
+        ,M.SUMM    
+        ,M.CUR
+        ,NULL
+        ,NULL
+        ,TO_CHAR(M.VLTR_DT,'DD.MM.YYYY HH24:MI:SS') DTIME
+        ,SU.NAME USERNAME       
+             FROM GC.SDM$IBS_DOCUM D
+                 ,GC.SDM_IBS S
+                 ,GC.SUBJ SS
+                 ,GC.MAINA M
+                 ,GC.SUBJ SU
+                 ,GC.HUMAN H
+  WHERE 1=1
+    AND S.OBJID = D.OBJID
+    AND SS.ID = S.SUBJ_ID
+    AND M.UNP = D.UNP
+    AND M.VLTR_DT BETWEEN TO_DATE(:DateST,'DD/MM/YYYY hh24:mi:ss')
+	                AND TO_DATE(:DateEn,'DD/MM/YYYY hh24:mi:ss')   
+    AND SU.ID = M.USER_CRE    
+    AND H.SUBJ_ID = SS.ID             
+    ORDER BY 14 
+}
+
+
+x=4
+
+DO until ds.EOF
+	a01=ds.fields("ID_IBS")
+	a02=ds.fields("ID_CLIENT")
+	a03=ds.fields("NAME")
+      a04=ds.fields("VIP")
+      a05=ds.fields("TYPE_IBS")
+      a06=ds.fields("TYPE_OPER")
+      a07=ds.fields("DT")
+      a08=ds.fields("KT")
+      a09=ds.fields("NAZPLAT")
+      a10=ds.fields("SUMM_OPER")
+      a11=ds.fields("CUR")
+      a12=ds.fields("OLD_VAL")
+      a13=ds.fields("NEW_VAL")
+      a14=ds.fields("DTIME")
+      a15=ds.fields("USERNAME")
+
+
+      wks.Cells(x,1) = a01
+	wks.Cells(x,2) = a02
+	wks.Cells(x,3) = a03
+      wks.Cells(x,4) = a04
+      wks.Cells(x,5) = a05
+      wks.Cells(x,6) = a06 
+      wks.Cells(x,7) = a07 
+      wks.Cells(x,8) = a08 
+      wks.Cells(x,9) = a09 
+      wks.Cells(x,10) = a10 
+      wks.Cells(x,11) = a11 
+      wks.Cells(x,12) = a12 
+      wks.Cells(x,13) = a13 
+      wks.Cells(x,14) = a14
+      wks.Cells(x,15) = a15
+
+
+	x=x+1
+	ds.movenext
+loop
+	xlsApp.Visible = True
+
+End sub
+
+
+Sub OnFetchStyle
+    'GridPos("Row") - возвращает номер строки, стиль которой меняется
+    'GridPos("Col") - возвращает название столбца, стиль которого меняется
+     RowN=GridPos("Row")
+    'если в колонке STATE значение ERROR
+    If GridForm.Text("USER_CLOSE", RowN) <> "" Then
+        'Если выбранная строка
+        If RowN = GridForm.RowIndex then
+          GridStyle.ForeColor = 8421504
+          GridStyle.BackColor = 16777215
+          GridStyle.Font.Bold = True
+        Else
+          GridStyle.ForeColor = 8421504
+          GridStyle.BackColor = 16777215
+          GridStyle.Font.Bold = False
+        End If
+        'можно покрасить определенный столбец в свой цвет
+      '  If GridPos("Col") = "SUBJ_NAME" Then
+      '    GridStyle.ForeColor = 65280
+      '  End If
+      End If
+End Sub
+
+Sub OnFetchStyleDover
+    'GridPos("Row") - возвращает номер строки, стиль которой меняется
+    'GridPos("Col") - возвращает название столбца, стиль которого меняется
+     RowN=GridPos("Row")
+    If GridForm.Text("DATE_ANNUL", RowN) <> "" Then
+        'Если выбранная строка
+        If RowN = GridForm.RowIndex then
+          GridStyle.ForeColor = 8421504
+          GridStyle.BackColor = 16777215
+          GridStyle.Font.Bold = True
+        Else
+          GridStyle.ForeColor = 8421504
+          GridStyle.BackColor = 16777215
+          GridStyle.Font.Bold = False
+        End If
+        'можно покрасить определенный столбец в свой цвет
+      '  If GridPos("Col") = "SUBJ_NAME" Then
+      '    GridStyle.ForeColor = 65280
+      '  End If
+      End If
+End Sub
+
+Sub OnFetchStyleGlobalQuals
+    'GridPos("Row") - возвращает номер строки, стиль которой меняется
+    'GridPos("Col") - возвращает название столбца, стиль которого меняется
+     RowN=GridPos("Row")
+    If GridForm.Text("VALUE", RowN) <> "Не действует" Then
+        'Если выбранная строка
+        If RowN = GridForm.RowIndex then
+          GridStyle.ForeColor = 8421504
+          GridStyle.BackColor = 16777215
+          GridStyle.Font.Bold = True
+        Else
+          GridStyle.ForeColor = 8421504
+          GridStyle.BackColor = 16777215
+          GridStyle.Font.Bold = False
+        End If
+      End If
+End Sub
+
+Sub OnFetchStyleDocum
+    'GridPos("Row") - возвращает номер строки, стиль которой меняется
+    'GridPos("Col") - возвращает название столбца, стиль которого меняется
+     RowN=GridPos("Row")
+    If GridForm.Text("STATUS", RowN) <> "Проведено" Then
+        'Если выбранная строка
+        If RowN = GridForm.RowIndex then
+          GridStyle.ForeColor = 255
+          GridStyle.BackColor = 16777215
+          GridStyle.Font.Bold = True
+        Else
+          GridStyle.ForeColor = 255
+          GridStyle.BackColor = 16777215
+          GridStyle.Font.Bold = False
+        End If
+        'можно покрасить определенный столбец в свой цвет
+      '  If GridPos("Col") = "SUBJ_NAME" Then
+      '    GridStyle.ForeColor = 65280
+      '  End If
+      End If
+End Sub
+
+Sub DOVER
+ set dlg=createobject("mdialog.cdialog")
+ Set MS = CreateObject("MScripts.UScripts")
+  vObjID=GridForm.Text("OBJID")
+                #sql_smt{sys.SET_IBSOBJID_VALUE ( 'IBSOBJID', :vObjID);commit;}  
+With DLG
+    .Caption = "Доверенности"
+    .FormName = "SDM$IBS_TRUST"
+    .style = 16
+    .cmdCancel.Caption="Отмена"
+    .cmdOk.Caption="Печать"
+
+ Set TrustDs = OraEmptyDynaset
+          If Oraexecplsql(False,"begin :TrustDs := gc.sdm$ibs.get_trust_list(:vObjID); end;", "TrustDs", TrustDs, "vObjID", vObjID) Then
+              vDoverDSRef = MS.Obj2Long(TrustDs)
+              Request.Add "DoverDsRef", vDoverDSRef
+              Set FFS=CreateObject("MScripts.cUserGridForm")
+              FFS.SetFetchStyleSub "OnFetchStyleDover"
+              FFS.Init "SDM$IBS$TRUST", Request, "Список доверенностей ячейки "& vObjID, false, false, "OBJID", "OnUpdateComAcc"
+              FFS.AddGridColumn "ID", "Идентификатор доверенности", 10, 0
+              FFS.AddGridColumn "OBJID", "Идентификатор ячейки", 10, 0
+              FFS.AddGridColumn "FIO", "Доверенное лицо", 10, 0
+              FFS.AddGridColumn "INSTIME", "Время добавления ячейки", 10, 0
+              FFS.AddGridColumn "DATE_ST", "Дата начала доверенности", 10, 0
+              FFS.AddGridColumn "DATE_EN", "Дата окончания доверенности", 10, 0
+              FFS.AddGridColumn "DATE_ANNUL", "Дата аннулирования доверенности", 10, 0
+              FFS.AddGridColumn "USER_INS", "Пользователь добавивший ячейку", 10, 0
+              FFS.AddCommand "AddDov", "Добавить", True, False, "Add"
+              FFS.AddCommand "AnnulDov", "Аннулировать", True, False, "Del"
+
+              FFS.Show 1
+              Request.Add "DoverDsRef", ""
+
+              If FFS.GetSelectedCount = 1 Then
+                vTrustID=FFS.GetSelectedItem(0)     
+              End If
+              Else
+              TrustDs.MoveFirst
+              vTrustID = TrustDs.Fields("OBJID").Value()
+              End If
+END With
+
+END Sub
+
+Sub AddDov
+  vContinue = False
+
+  Set CD=CreateObject("MDIALOG.CDIALOG")
+  Set M=CreateObject("MMessages.UMessages")
+  Set MS = CreateObject("MScripts.UScripts")
+
+ With CD
+    .Caption = "Клиент"
+    .FormName = "SDM$TRUST_ADD"
+    .style = 16
+    .cmdCancel.Caption="Отмена"
+    .cmdOk.Caption="Поиск"	
+
+    With .Group
+      .AddLabel .LabelConstr(True), "ФИО клиента"
+      .AddTextBox .ControlConstr(), "ФИО клиента", "vSubjName", vSubjName, 256, False, 8
+      .AddLabel .LabelConstr(True), "ID клиента"
+      .AddTextBox .ControlConstr(), "ID клиента", "vSubjId", vSubjId, 15, False, 8192
+    End With
+    Do
+      If .Exec() Then
+        vSubjId=.Value("vSubjId")
+        vSubjName=.Value("vSubjName")
+
+        If len(vSubjId)=0 And Len(vSubjName)>0 Then
+          Set SubjDs = OraEmptyDynaset
+          If Oraexecplsql(False,"begin :SubjDs := gc.sdm$ibs.get_subj_list(:subj_name); end;", "SubjDs", SubjDs, "subj_name", vSubjName) Then
+            If SubjDs.RecordCount = 0 Then
+              vSubjId = "0"
+            ElseIf SubjDs.RecordCount>1 Then
+              vSubjDSRef = MS.Obj2Long(SubjDs)
+              Request.Add "SubjDsRef", vSubjDSRef
+
+              Set FFT=CreateObject("MScripts.cUserGridForm")
+              FFT.Init "SDM$IBS$SUBJ", Request, "Список клиентов", false, false, "ID", "OnUpdateComAcc"
+              FFT.AddGridColumn "ID", "Ид. клиента", 10, 0
+              FFT.AddGridColumn "NAME", "ФИО", 10, 0
+              FFT.AddGridColumn "PASSPORT", "Номер документа", 10, 0
+              FFT.AddGridColumn "BIRTHDAY", "Дата рождения", 10, 0
+              FFT.AddGridColumn "INN", "ИНН", 10, 0
+              FFT.Show 1
+
+              Request.Add "SubjDsRef", ""
+
+              If FFT.GetSelectedCount = 1 Then
+                vSubjId=FFT.GetSelectedItem(0)
+                vSubjName = SubjDs.Fields("NAME").Value()
+              End If
+            Else
+              SubjDs.MoveFirst
+              vSubjId = SubjDs.Fields("ID").Value()
+              vSubjName = SubjDs.Fields("NAME").Value()
+            End If
+          End If
+        End If
+
+        If vSubjId = "0" Then
+          M.ErrorMsgBox "Не найден клиент с ФИО """ & vSubjName & """!"   
+        ElseIf len(vSubjId)>0 Then
+          Set AccDs = OraEmptyDynaset
+              vContinue = True
+              Exit Do
+        Else
+          M.ErrorMsgBox "Не указаны данные для поиска клиента!"
+        End If
+      Else
+        Exit Do
+      End If
+    Loop
+  End With
+
+  If vContinue Then
+    Do
+set dlg=createobject("mdialog.cdialog")
+      vContinue = False
+     With DLG
+    .Caption = "Добавление доверенности:"
+    .FormName = "IBS_DOVER"
+
+  With .Group
+
+        .AddLabel        .LabelConstr(False) , "ФИО доверенного лица"
+        .AddTextBox      .ControlConstr()    , "ФИО доверенного лица", "FIO", vSubjName , 2000, False, 2048
+        .AddLabel        .LabelConstr(False) , "ID доверенного лица"
+        .AddTextBox      .ControlConstr()    , "ID доверенного лица", "IDClient", vSubjId , 2000, False, 2048
+        .AddLabel .LabelConstr(), "Действует с"
+        .AddDateTimePicker2 .ControlConstr() , "Действует с", "DOVER_ST", "dd-mm-yyyy","", DOVER_ST,,0
+        .AddLabel .LabelConstr(), "Действует по"
+        .AddDateTimePicker2 .ControlConstr() , "Действует по", "DOVER_EN", "dd-mm-yyyy","", DOVER_EN,,0
+
+
+  	
+
+End with
+
+	If Not .Exec Then Exit Sub
+DOVER_ST = .Value("DOVER_ST")
+DOVER_EN = .Value("DOVER_EN")
+Exit Do
+
+End with
+Loop
+              #sql_smt{ gc.sdm$ibs.add_dover(SYS_CONTEXT('IBSOBJID','IBSOBJID'),:vSubjId,to_date(:DOVER_ST,'dd/mm/yyyy'),to_date(:DOVER_EN,'dd/mm/yyyy'));
+                        }
+M.Okmsgbox "Доверенность заведена"
+Exit Sub
+End If
+
+End sub
+
+Sub AnnulDov
+Set M=CreateObject("MMessages.UMessages")
+vIDDOV=GridForm.Text("ID")
+set dlg=createobject("mdialog.cdialog")
+
+     With DLG
+    .Caption = "Причина аннулирования:"
+    .FormName = "IBS_ANNUL_DOVER"
+
+  With .Group
+
+        .AddLabel        .LabelConstr(False) , "Причина аннулирования доверенности"
+        .AddTextBox      .ControlConstr()    , "Причина аннулирования доверенности", "TXTANNUL", TXTANNUL , 2000, True, 0
+End with
+
+	If Not .Exec Then Exit Sub
+TXTANNUL = .Value("TXTANNUL")
+End With
+
+If M.YesNoMsgBox("Действительно аннулировать данную доверенность?")=vbYes Then
+    #sql_smt{ begin gc.sdm$ibs.annul_dover(:vIDDOV,:TXTANNUL); commit; end; }
+End If
+
+End sub
+
+
+Sub MAINA
+ set dlg=createobject("mdialog.cdialog")
+ Set MS = CreateObject("MScripts.UScripts")
+  vObjID=GridForm.Text("OBJID")  
+With DLG
+    .Caption = "Проведенные документы"
+    .FormName = "SDM$IBS_MAINA"
+    .style = 16
+    .cmdCancel.Caption="Закрыть"
+
+ Set MainaDS = OraEmptyDynaset
+          If Oraexecplsql(False,"begin :MainaDS := gc.sdm$ibs.get_maina_list(:vObjID); end;", "MainaDs", MainaDs, "vObjID", vObjID) Then
+              vSubjDSRef = MS.Obj2Long(MainaDS)
+              Request.Add "SubjDsRef", vSubjDSRef
+              Set FFS=CreateObject("MScripts.cUserGridForm")
+              FFS.SetFetchStyleSub "OnFetchStyleDocum"
+              FFS.Init "SDM$IBS$MAINA", Request, "Список документов ячейки "& vObjID, false, false, "OBJID", "OnUpdateComAcc"
+              FFS.AddGridColumn "ID", "Идентификатор ячейки", 10, 0
+              FFS.AddGridColumn "STATUS", "Статус", 10, 0
+              FFS.AddGridColumn "UNP", "Пачка документов", 10, 0
+              FFS.AddGridColumn "SUMM", "Сумма", 10, 0
+              FFS.AddGridColumn "NNS_DT", "Счет по дебету", 10, 0
+              FFS.AddGridColumn "NNS_KT", "Счет по кредиту", 10, 0
+              FFS.AddGridColumn "TXT", "Назначение платежа", 10, 0
+              FFS.Show 1
+              Request.Add "SubjDsRef", ""
+
+              If FFS.GetSelectedCount = 1 Then
+                vMainaID=FFS.GetSelectedItem(0)     
+              End If
+              Else
+              MainaDs.MoveFirst
+              vMainaID = MainaDs.Fields("ID").Value()
+              End If
+END With
+
+END Sub
+
+
+
+
+Sub INCOME
+
+set dlg=createobject("mdialog.cdialog")
+set dlg1=createobject("mdialog.cdialog")
+Set MS=CreateObject("MMessages.UMessages")
+With Dlg
+
+    .Caption = "Введите пароль"
+    .FormName = "PASS_INCOME"
+
+
+  With .Group
+    .AddLabel .LabelConstr(false), "                                                                  ПАРОЛЬ"        
+    .AddTextBox .ControlConstr(1, True), "PASS", "PASS", "", 8,, 2 or 32
+
+End with
+
+	If Not .Exec Then Exit Sub
+	fl=0
+	if .VALUE("PASS")="123456" Then fl=1
+	IF fl=0 Then MS.ErrorMsgBox "Неверный пароль!"
+	IF fl=0 Then Exit Sub 	
+
+End With
+
+pst = DateAdd("m",-1,Date)
+pst = DateAdd("d",-day(Pst)+1,pst)
+pend = DateAdd("d",-day(date),date)
+
+With Dlg1
+
+   .Caption = "Запуск процедуры. Параметры"
+   .FormName = "EXEC_INCOME"
+
+  With .Group
+ sql = "select 'USER_PARAM5' USER_PARAM5 from dual"
+        Set ObjDS = OraExecSQL(false, sql, ORADYN_DEFAULT, "SUBJID", CStr(SUBJID))
+     	.AddLabel .LabelConstr(false), "Период с"               
+	.AddDateTimePicker2 .ControlConstr() , "Период с", "date1", "dd/mm/yyyy",pst, date1,,1      
+	.AddLabel .LabelConstr(False), "Период по"        
+	.AddDateTimePicker2 .ControlConstr() , "Период по", "date2", "dd/mm/yyyy",pend, date2,,1
+        Set fhhh = OraFieldsHelper(ObjDS)
+      	Sql = "select distinct s.name CAPTION,s.id ID from gc.sprav$values sv,gc.subj s where sv.id_type = '2445645815' and sv.value2 = s.id union select distinct s.name caption,s.id from gc.sprav$values sv,gc.subj s "
+            Sql = Sql & "where sv.id_type = '2445645815' and sv.value3 = s.id"
+      	Set price= OraExecSQL(False, Sql, ORADYN_DEFAULT)
+	.AddLabel .LabelConstr(False), "Филиал"	
+	.AddComboBoxData .ControlConstr(), "Филиал", "USER_PARAM5", fhhh("USER_PARAM5"), price, 1, , 1	
+
+
+
+End With
+	If Not .Exec Then Exit Sub
+DATESTART = .Value("date1")
+DATEEND = .Value("date2")
+End with
+
+
+#sql_smt{
+SELECT CASE WHEN TO_DATE(:DATEEND,'DD/MM/YYYY') > TRUNC(SYSDATE) 
+           THEN 'ERROR' 
+           ELSE 'SUCCESS'
+           END
+   INTO :CHECK_DATE
+FROM DUAL;
+}
+
+IF CHECK_DATE = "ERROR" THEN
+MS.Okmsgbox "Дата окончания не может быть больше текущей даты"
+ELSE
+#sql_smt{
+gc.sdm$ibs.mass_income(to_date(:DATESTART,'DD/MM/YYYY'),to_date(:DATEEND,'DD/MM/YYYY'),null);
+}
+Ms.Okmsgbox "Сформированные документы отправлены в бухгалтерию. Проверьте!!!!"
+END IF
+
+End Sub
+
+'Sub INCOME_IBS
+'set dlg1=createobject("mdialog.cdialog")
+'Set MS=CreateObject("MMessages.UMessages")
+'vObjID=GridForm.Text("OBJID") 
+
+'pst = DateAdd("m",-1,Date)
+'pst = DateAdd("d",-day(Pst)+1,pst)
+'pend = DateAdd("d",-day(date),date)
+
+'With Dlg1
+
+'   .Caption = "Запуск процедуры. Параметры"
+'   .FormName = "EXEC_INCOME"
+
+'  With .Group
+' sql = "select 'USER_PARAM5' USER_PARAM5 from dual"
+'        Set ObjDS = OraExecSQL(false, sql, ORADYN_DEFAULT, "SUBJID", CStr(SUBJID))
+'     	.AddLabel .LabelConstr(false), "Период с"               
+'	.AddDateTimePicker2 .ControlConstr() , "Период с", "date1", "dd/mm/yyyy",pst, date1,,1      
+'	.AddLabel .LabelConstr(False), "Период по"        
+'	.AddDateTimePicker2 .ControlConstr() , "Период по", "date2", "dd/mm/yyyy",pend, date2,,1
+'
+'End With
+'	If Not .Exec Then Exit Sub
+'End with
+'
+'msgbox "Думаю!"
+'
+'End Sub
+
+Sub Income_Protocol_Error
+
+ set dlg=createobject("mdialog.cdialog")
+ Set MS = CreateObject("MScripts.UScripts")
+ Set M=CreateObject("MMessages.UMessages")
+
+With DLG
+    .Caption = "Выбрать протокол начисления"
+    .FormName = "SDM$IBS_PROTOCOL"
+    .style = 16
+    .cmdCancel.Caption="Отмена"
+    .cmdOk.Caption="Печать"
+
+         
+ Set IncomeDs = OraEmptyDynaset
+          If Oraexecplsql(False,"begin :IncomeDs := gc.sdm$ibs.get_execincome_list(); end;", "IncomeDs", IncomeDs, "subj_name", vSubjName) Then
+            If Incomeds.RecordCount = 0 Then
+              IncomeDs = "0"
+            ElseIf IncomeDs.RecordCount>0 Then
+              vSubjDSRef = MS.Obj2Long(IncomeDs)
+              Request.Add "SubjDsRef", vSubjDSRef
+
+              Set FFS=CreateObject("MScripts.cUserGridForm")
+              FFS.Init "SDM$IBS$PROTOCOL", Request, "Выбрать протокол начисления", false, false, "UUID", "OnUpdateComAcc"
+              FFS.AddGridColumn "UUID", "Идентификатор запуска", 10, 0
+              FFS.AddGridColumn "USER_EXEC", "Пользователь запустивший начисление", 10, 0
+              FFS.AddGridColumn "DATE_EXEC", "Дата запуска", 10, 0
+              FFS.AddGridColumn "DATE_START", "Дата начала периода", 10, 0
+              FFS.AddGridColumn "DATE_END", "Дата окончания периода", 10, 0
+              FFS.Show 1
+             
+              Request.Add "SubjDsRef", ""
+
+              If FFS.GetSelectedCount = 1 Then
+                vIncomeDs=FFS.GetSelectedItem(0)
+              End If
+            Else
+              IncomeDs.MoveFirst
+              vIncomeDs= IncomeDS.Fields("UUID").Value()
+          End If
+          End If
+                
+
+End With
+
+IF vIncomeDS = "" Then
+Exit Sub
+Else
+
+
+filename="v:\reports\IBS\PROTOCOL_INCOME.xls"
+
+Set xlsApp=CreateObject("Excel.Application")
+
+Set wkb = xlsApp.Workbooks.open(filename,,1)
+
+Set wks = wkb.ActiveSheet
+
+#SQL_SMT{
+SELECT COUNT(*) 
+INTO :vCNT 
+FROM GC.IBS$INCOME_PROTOCOL
+WHERE UUID = :vIncomeDS;
+}
+
+IF vCNT > 0 THEN 
+
+set ds=#sql_cur{
+SELECT I.OBJID
+      ,S.NUM_DOG
+      ,S.NUM_IBS
+      ,TO_CHAR(S.DATE_OPEN,'DD.MM.YYYY') DATE_OPEN
+      ,TO_CHAR(S.DFINAL,'DD.MM.YYYY') DFINAL
+      ,GC.SALDO.SIGNED(A.S,A.CUR,I.DATE_EVENT) OST
+      ,I.TXT
+         FROM GC.IBS$INCOME_PROTOCOL I
+             ,GC.SDM_IBS S
+             ,GC.ACC A
+WHERE 1=1
+  AND I.UUID = :vIncomeDS 
+  AND I.OBJID = S.OBJID
+  AND A.OBJID = S.OBJID_RENT
+  ORDER BY 1
+}
+
+
+x=4
+
+DO until ds.EOF
+	a01=ds.fields("OBJID")
+	a02=ds.fields("NUM_DOG")
+	a03=ds.fields("NUM_IBS")
+	a04=ds.fields("DATE_OPEN")
+        a05=ds.fields("DFINAL")
+        a06=ds.fields("OST")
+        a07=ds.fields("TXT")
+
+
+        wks.Cells(x,1) = a01
+	wks.Cells(x,2) = a02
+	wks.Cells(x,3) = a03
+        wks.Cells(x,4) = a04
+        wks.Cells(x,5) = a05
+        wks.Cells(x,6) = a06 
+        wks.Cells(x,7) = a07 
+
+	x=x+1
+	ds.movenext
+loop
+	xlsApp.Visible = True
+ELSE 
+M.Okmsgbox "Ошибок не найдено"
+END IF
+
+END IF
+End sub
+
+Sub ChangeProlong
+Set MS=CreateObject("MMessages.UMessages")
+#sql_smt{
+SELECT
+SYS_CONTEXT('IBSOBJID','IBSOBJID') 
+INTO :vOBJID
+FROM DUAL;
+}
+#sql_smt{
+update gc.sdm_ibs 
+set prolong = decode(prolong,1,0,0,1)
+where objid = :vOBJID;
+begin
+select prolong
+into :prolong
+from gc.sdm_ibs 
+where objid = :vOBJID;
+end;
+IF :Prolong = '1' then
+gc.jour_pack.add_to_journal('SDMIBS',:vOBJID,'SDMIBS_UPROL','U','Нет пролонгации','Есть пролонгация');
+ELSE
+gc.jour_pack.add_to_journal('SDMIBS',:vOBJID,'SDMIBS_UPROL','U','Есть пролонгация','Нет пролонгации');
+END IF;
+}
+
+Ms.Okmsgbox "Ячейка изменена. Необходимо сохранить изменения!"
+End Sub 
+
+Sub ChangeSumm
+Set MS=CreateObject("MMessages.UMessages")
+#sql_smt{
+SELECT
+SYS_CONTEXT('IBSOBJID','IBSOBJID') 
+INTO :vOBJID
+FROM DUAL;
+}
+#sql_smt{
+begin
+SELECT SUMMA 
+INTO :SUMMA_OTV_RUB_OLD
+FROM GC.SDM$IBS_OTV
+WHERE 1=1
+  AND OBJID = :vOBJID
+  AND CUR = '810';
+exception when no_data_found then
+:SUMMA_OTV_RUB_OLD := 0;
+end;
+}
+#sql_smt{
+begin
+SELECT SUMMA 
+INTO :SUMMA_OTV_USD_OLD
+FROM GC.SDM$IBS_OTV
+WHERE 1=1
+  AND OBJID = :vOBJID
+  AND CUR = '840';
+exception when no_data_found then
+:SUMMA_OTV_USD_OLD := 0;
+end;
+}
+#sql_smt{
+begin
+SELECT SUMMA 
+INTO :SUMMA_OTV_EUR_OLD
+FROM GC.SDM$IBS_OTV
+WHERE 1=1
+  AND OBJID = :vOBJID
+  AND CUR = '978';
+exception when no_data_found then
+:SUMMA_OTV_EUR_OLD := 0;
+end;
+}
+#sql_smt{
+begin
+SELECT SUMMA 
+INTO :SUMMA_OTV_CNY_OLD
+FROM GC.SDM$IBS_OTV
+WHERE 1=1
+  AND OBJID = :vOBJID
+  AND CUR = '156';
+exception when no_data_found then
+:SUMMA_OTV_CNY_OLD := 0;
+end;
+}
+set dlg=createobject("mdialog.cdialog")
+
+     With DLG
+    .Caption = "Сумма"
+    .FormName = "Сумма ответственного хранения"
+
+With .Group
+
+        .AddLabel        .LabelConstr(False) , "Сумма в рублях"
+        .AddNumberBox .ControlConstr(0, True)   , "", "SUMMA_OTV_RUB_NEW", SUMMA_OTV_RUB_OLD, 3,0
+        .AddLabel        .LabelConstr(False) , "Сумма в долларах"
+        .AddNumberBox .ControlConstr(0, True)   , "", "SUMMA_OTV_USD_NEW", SUMMA_OTV_USD_OLD, 3,0
+        .AddLabel        .LabelConstr(False) , "Сумма в евро"
+        .AddNumberBox .ControlConstr(0, True)   , "", "SUMMA_OTV_EUR_NEW", SUMMA_OTV_EUR_OLD, 3,0
+        .AddLabel        .LabelConstr(False) , "Сумма в юанях"
+        .AddNumberBox .ControlConstr(0, True)   , "", "SUMMA_OTV_CNY_NEW", SUMMA_OTV_CNY_OLD, 3,0
+End with
+
+	If Not .Exec Then Exit Sub
+SUMMA_OTV_RUB_NEW = .Value("SUMMA_OTV_RUB_NEW")
+SUMMA_OTV_USD_NEW = .Value("SUMMA_OTV_USD_NEW")
+SUMMA_OTV_EUR_NEW = .Value("SUMMA_OTV_EUR_NEW")
+SUMMA_OTV_CNY_NEW = .Value("SUMMA_OTV_CNY_NEW")
+End With
+
+
+
+#sql_smt{
+GC.P_SUPPORT.ARM_START();
+IF :SUMMA_OTV_RUB_NEW <> :SUMMA_OTV_RUB_OLD THEN 
+DELETE FROM GC.SDM$IBS_OTV WHERE OBJID = :vOBJID AND CUR = '810';
+INSERT INTO GC.SDM$IBS_OTV
+SELECT :vOBJID,'810',:SUMMA_OTV_RUB_NEW FROM DUAL;
+gc.jour_pack.add_to_journal('SDMIBS',:vOBJID,'SDMIBS_UPD9','U','RUB - '||:SUMMA_OTV_RUB_OLD,'RUB - '||:SUMMA_OTV_RUB_NEW);
+END IF;
+IF :SUMMA_OTV_USD_NEW <> :SUMMA_OTV_USD_OLD THEN 
+DELETE FROM GC.SDM$IBS_OTV WHERE OBJID = :vOBJID AND CUR = '840';
+INSERT INTO GC.SDM$IBS_OTV
+SELECT :vOBJID,'840',:SUMMA_OTV_USD_NEW FROM DUAL;
+gc.jour_pack.add_to_journal('SDMIBS',:vOBJID,'SDMIBS_UPD9','U','USD - '||:SUMMA_OTV_USD_OLD,'USD - '||:SUMMA_OTV_USD_NEW);
+END IF;
+IF :SUMMA_OTV_EUR_NEW <> :SUMMA_OTV_EUR_OLD THEN 
+DELETE FROM GC.SDM$IBS_OTV WHERE OBJID = :vOBJID AND CUR = '978';
+INSERT INTO GC.SDM$IBS_OTV
+SELECT :vOBJID,'978',:SUMMA_OTV_EUR_NEW FROM DUAL;
+gc.jour_pack.add_to_journal('SDMIBS',:vOBJID,'SDMIBS_UPD9','U','EUR - '||:SUMMA_OTV_EUR_OLD,'EUR - '||:SUMMA_OTV_EUR_NEW);
+END IF;
+IF :SUMMA_OTV_CNY_NEW <> :SUMMA_OTV_CNY_OLD THEN 
+DELETE FROM GC.SDM$IBS_OTV WHERE OBJID = :vOBJID AND CUR = '156';
+INSERT INTO GC.SDM$IBS_OTV
+SELECT :vOBJID,'156',:SUMMA_OTV_CNY_NEW FROM DUAL;
+gc.jour_pack.add_to_journal('SDMIBS',:vOBJID,'SDMIBS_UPD9','U','CNY - '||:SUMMA_OTV_CNY_OLD,'CNY - '||:SUMMA_OTV_CNY_NEW);
+END IF;
+}
+
+Ms.Okmsgbox "Суммы изменены. Необходимо сохранить изменения!"
+End Sub 
+
+
+Sub Tariff
+ set dlg=createobject("mdialog.cdialog")
+ Set MS = CreateObject("MScripts.UScripts")
+  vObjID=GridForm.Text("OBJID")
+                #sql_smt{sys.SET_IBSOBJID_VALUE ( 'IBSOBJID', :vObjID);commit;}  
+With DLG
+    .Caption = "Тарифы ячейки "&vObjID
+    .FormName = "SDM$TARIFF"
+    .style = 16
+    .cmdCancel.Caption="Отмена"
+    .cmdOk.Caption="Печать"
+
+ Set TariffDs = OraEmptyDynaset
+          If Oraexecplsql(False,"begin :TariffDs := gc.sdm$ibs.get_tariff_list(:vObjID); end;", "TariffDs", TariffDs, "vObjID", vObjID) Then
+              vSubjDSRef = MS.Obj2Long(TariffDs)
+              Request.Add "SubjDsRef", vSubjDSRef
+              Set FFS=CreateObject("MScripts.cUserGridForm")
+'              FFS.SetFetchStyleSub "OnFetchStyleDover"
+              FFS.Init "SDM$IBS$TARIFF", Request, "Список тарифов ячейки "& vObjID, false, false, "OBJID", "OnUpdateComAcc"
+              FFS.AddGridColumn "ID", "Идентификатор тарифа", 10, 0
+              FFS.AddGridColumn "OBJID", "Идентификатор ячейки", 10, 0
+              FFS.AddGridColumn "DATE_ST", "Дата начала тарифа", 10, 0
+              FFS.AddGridColumn "DATE_EN", "Дата окончания тарифа", 10, 0
+              FFS.AddGridColumn "PERIOD_TYPE", "Тип периода", 10, 0
+              FFS.AddGridColumn "PERIOD_INT", "Количество периодов", 10, 0
+              FFS.AddGridColumn "TARIFF_SUMM", "Сумма", 10, 0
+'              FFS.AddCommand "AddDov", "Добавить", True, False, "Add"
+              FFS.AddCommand "UpdTariff", "Редактировать", True, False, "Edit"
+
+              FFS.Show 1
+              Request.Add "SubjDsRef", ""
+
+              If FFS.GetSelectedCount = 1 Then
+                vTariffID=FFS.GetSelectedItem(0)     
+              End If
+              Else
+              TariffDs.MoveFirst
+              vTariffID = TariffDs.Fields("ID").Value()
+              End If
+
+END With
+
+End Sub
+
+Sub UpdTariff
+Set M=CreateObject("MMessages.UMessages")
+vID=GridForm.Text("ID")
+vOBJID=GridForm.Text("OBJID")
+vTARIFF_SUMM=GridForm.Text("TARIFF_SUMM")
+set dlg=createobject("mdialog.cdialog")
+
+     With DLG
+    .Caption = "Сумма"
+    .FormName = "IBS_ANNUL_DOVER"
+
+  With .Group
+
+        .AddLabel        .LabelConstr(False) , "Сумма тарифа"
+        .AddNumberBox .ControlConstr(0, True)   , "", "vTARIFF_SUMM_NEW", vTARIFF_SUMM, 3,0
+        .AddLabel        .LabelConstr(False) , "Причина изменения"
+        .AddTextBox      .ControlConstr()    , "Причина изменения", "TXT", TXT , 2000, False, 0
+End with
+
+	If Not .Exec Then Exit Sub
+vTARIFF_SUMM_NEW = .Value("vTARIFF_SUMM_NEW")
+vTXT=.Value("TXT")
+End With
+
+IF vTARIFF_SUMM_NEW <> vTARIFF_SUMM THEN
+If M.YesNoMsgBox("Действительно хотите изменить сумму тарифа?")=vbYes Then
+#sql_smt{update gc.sdm$ibs_tariff set tariff_summ = :vTARIFF_SUMM_NEW where id = :vID;
+gc.jour_pack.add_to_journal('SDMIBS',:vOBJID,'SDMIBS_UPD2','U',:vTARIFF_SUMM,:vTARIFF_SUMM_NEW,'Смена тарифа ID = '||:vID||'. Причина: '||:vTXT);
+commit;}
+'хз как обновлять. Функция refresh работает только для основной грид формы
+M.OkMsgBox "Тариф изменен. Перезайдите в форму тарифов"
+End If
+END IF
+
+End Sub
+
+
+Sub PROLONG_RENT
+    pOBJID=GridForm.Text("OBJID")
+    pFINAL=GridForm.Text("DFINAL")
+    Set M=CreateObject("MMessages.UMessages")
+    Set CD=CreateObject("MDIALOG.CDIALOG")
+    Set CDNEW=CreateObject("MDIALOG.CDIALOG")
+
+#sql_smt{
+SELECT NNS
+INTO :vNNS
+FROM GC.SDM_IBS 
+WHERE OBJID = :pOBJID;
+}
+
+    With CD
+      .Caption = "Продление аренды"
+      .FormName = "SDM$RENT_PROLONG"	
+      .style = 16
+      .cmdCancel.Caption="Отменить действие"
+      .cmdOk.Caption="Продлить"
+      With .Group
+
+
+IF vNNS <> "" then
+       .AddOptionButton .ControlConstr(0,False), "NNS_MODE", "NNS_MODE", "Со счета "& vNNS, 1
+END IF
+IF vNNS = "" then
+       .AddOptionButton .ControlConstr(0,True), "CASH_MODE", "CASH_MODE", "Через кассу ", 1
+ELSE
+       .AddOptionButton .ControlConstr(0,True), "CASH_MODE", "CASH_MODE", "Через кассу ", 0
+END IF
+
+         Set ProlongIBSBox = .AddGroup(.ControlConstr(1,True),0)
+    With ProlongIBSBox
+            Set WeekBox = .AddOptionButton(.ControlConstr(0,False), "PERIOD_WEEK", "PERIOD_WEEK", "В неделях", 0)
+            Set PeriodBox = .AddOptionButton(.ControlConstr(0,False), "PERIOD_MONTH", "PERIOD_MONTH", "В месяцах", 0)
+        Set GrpWeekBox = .AddGroup(.ControlConstr(1,True),0)
+            With GrpWeekBox 
+                .AddLabel .LabelConstr(), "Количество недель"
+                .AddComboBoxArray .ControlConstr(0,False) , "Количество недель", "PERIODWEEK_IBS", "","1,1;2,2", date_close,,0
+            End With
+            WeekBox.LinkValue GrpWeekBox, "Visible"
+        Set GrpPeriodBox = .AddGroup(.ControlConstr(1,True),0)
+            With GrpPeriodBox 
+                .AddLabel .LabelConstr(False), "                                                                     Количество месяцев"
+                .AddTextBox .ControlConstr(0, False)   , "Количество месяцев (число)", "PERIOD_IBS", "", 2, False, 8192 or 131072
+            End With                       
+    End With
+        .AddLabel        .LabelConstr(False) , "Причина"
+        .AddTextBox      .ControlConstr()    , "Причина", "TXT", TXT , 2000, True, 0
+
+WeekBox.LinkValue GrpWeekBox, "Visible"
+PeriodBox.LinkValue GrpPeriodBox, "Visible"
+      End With
+
+	If Not .Exec Then Exit Sub
+          PERIOD_IBS = .Value("PERIOD_IBS")
+          PERIODWEEK_IBS = .Value("PERIODWEEK_IBS")
+          PERIOD_WEEK= .Value("PERIOD_WEEK")
+          PERIOD_MONTH = .Value("PERIOD_MONTH")
+          CASH_MODE = .Value("CASH_MODE")  
+          IF vNNS = "" THEN
+          NNS_MODE = "False"
+          ELSE
+          NNS_MODE = .Value("NNS_MODE")  
+          END IF
+
+'msgbox PERIOD_WEEK
+'msgbox PERIOD_MONTH
+'msgbox PERIOD_IBS
+'msgbox PERIODWEEK_IBS
+
+#sql_smt{
+SELECT COUNT(*)
+INTO :vFUTURE_TARIFF_CNT
+     FROM GC.SDM$IBS_TARIFF S
+WHERE 1=1
+  AND S.OBJID = :pOBJID
+  AND TRUNC(SYSDATE) BETWEEN S.DATE_ST AND S.DATE_EN
+  AND EXISTS (SELECT 1 FROM GC.SDM$IBS_TARIFF SS
+                   WHERE 1=1
+                     AND SS.OBJID = S.OBJID
+                     AND SS.DATE_ST > S.DATE_EN
+                     );
+EXCEPTION WHEN NO_DATA_FOUND THEN
+:vFUTURE_TARIFF_CNT:=0;
+}
+
+
+#sql_smt{
+SELECT COUNT(*)
+INTO :PROVERKA
+FROM GC.SDM_IBS
+WHERE 1=1
+  AND OBJID = :pOBJID
+  AND :PERIOD_WEEK = 'True'
+  AND FILIAL = '"СДМ-БАНК" (ПАО)'
+  AND OTDEL = 'ОТДЕЛЕНИЕ "ЦЕНТРАЛЬНОЕ"';
+EXCEPTION WHEN NO_DATA_FOUND THEN
+:PROVERKA:=0;
+}
+
+IF PROVERKA > 0 THEN
+    M.ErrorMsgBox "Ячейка в ГО пролонгируется минимум на месяц!"
+ELSE
+
+  IF vFUTURE_TARIFF_CNT > 0 THEN
+        M.ErrorMsgBox "У ячейки уже есть пролонгация в будущем, которая еще не наступила. Подробно смотрите в меню тарифы ячейки!"
+  ELSE
+
+IF PERIOD_WEEK = "True" or PERIOD_WEEK = "Истина" THEN
+#sql_smt{gc.sdm$ibs.prolong_rent(:pOBJID,'WEEK',:PERIODWEEK_IBS);}
+ELSE
+#sql_smt{gc.sdm$ibs.prolong_rent(:pOBJID,'MONTH',:PERIOD_IBS);}
+END IF
+
+#sql_smt{
+SELECT SI.NNS
+      ,GC.NNS.GET(A.S,A.CUR) OBJID_RENT
+      ,SYSDATE
+      ,'Оплата аренды индивидуального сейфа № '||si.Num_Ibs||' по Договору № '||si.Num_Dog||' от '||to_char(si.date_open,'dd.mm.yyyy')||' г. за период с '||to_char(S.DATE_ST,'dd.mm.yyyy')||' по '||to_char(S.DATE_EN,'dd.mm.yyyy')||'; (с л/сч '||sI.nns||') '||CL.NAME 
+      ,S.TARIFF_SUMM*S.PERIOD_INT
+  INTO :vNNS
+      ,:vOBJID_RENT
+      ,:vVLTR_DT
+      ,:vNAZPLAT
+      ,:vTariff_Doc
+   FROM GC.SDM$IBS_TARIFF S
+       ,GC.SDM_IBS SI
+       ,GC.SUBJ CL
+       ,GC.ACC A
+WHERE 1=1
+  AND S.OBJID = :pOBJID
+  AND S.ID = (SELECT MAX(SS.ID) FROM GC.SDM$IBS_TARIFF SS WHERE SS.OBJID = S.OBJID)
+  AND SI.OBJID = S.OBJID
+  AND CL.ID = SI.SUBJ_ID
+  AND A.OBJID = SI.OBJID_RENT;
+}
+
+If M.YesNoMsgBox("Действительно хотите продлить ячейку?")=vbYes Then
+          IF NNS_MODE = "True" or NNS_MODE = "Истина" Then
+          vSql="begin :vUnp := gc.SDM$IBS.DEPT_RENT(:pObjID,:vTariff_Doc,'810',:vNns,:vOBJID_RENT,to_date(:vVltrDt,'dd/mm/yyyy hh24:mi:ss'),:vNazPlat,'1'); end;"
+          ELSE
+          vSql="begin :vUnp := gc.SDM$IBS.DEPT_RENT(:pObjID,:vTariff_Doc,'810',null,:vOBJID_RENT,to_date(:vVltrDt,'dd/mm/yyyy hh24:mi:ss'),:vNazPlat,'2'); end;"
+          END IF
+          If OraExecPLSQL(False, vSql, "pOBJID",pOBJID,"vTariff_Doc",vTariff_Doc,"vNns",vNns,"vOBJID_RENT",vOBJID_RENT,"vVltrDt",vVltrDt,"vNazPlat",vNazPlat, "vUnp",vUnp) Then
+            Set MDoc = CreateObject("MDocum.UDocum")
+            If MDoc.AskConfirmDocs(vUnp,"Сформировать пачку документов?") Then
+              #sql_smt{ gc.p_support.arm_start(); commit;
+                         gc.jour_pack.add_to_journal('SDMIBS',:pOBJID,'SDMIBS_DOCUM','K','','UNP-'||:vUnp||' Списание аренды при пролонгации');
+                       }
+            Else
+              #sql_smt{ rollback; }
+            End If
+          End If
+
+else 
+#sql_smt{rollback;}
+End if
+
+END IF
+END IF
+
+End With
+
+
+
+
+
+
+End Sub
+
+
+Sub LOSS
+Set M=CreateObject("MMessages.UMessages")
+M.OkMsgBox "В разработке....."
+End Sub
+
+SUB OTHER
+Set M=CreateObject("MMessages.UMessages")
+    pOBJID=GridForm.Text("OBJID")
+    pDeposit=GridForm.Text("OBJID_DEPOSIT")    
+    Set CD=CreateObject("MDIALOG.CDIALOG")
+
+    With CD
+      .Caption = "Вскрытие. Прочее"
+      .FormName = "SDM$UNLOCK_OTHER"	
+      .style = 16
+      .cmdCancel.Caption="Отменить действие"
+      .cmdOk.Caption="Выполнить"
+      With .Group
+         Set Key = .AddGroup(.ControlConstr(1,True),0)
+         With Key
+              .AddOptionButton .ControlConstr(0,False), "KEY_LOSS", "KEY_LOSS", "Ключ не возвращен", 1
+              .AddOptionButton .ControlConstr(0,True), "KEY_NO_LOSS", "KEY_NO_LOSS", "Ключ возвращен", 0
+         End With
+         Set Rent = .AddGroup(.ControlConstr(1,True),0)
+         With Rent
+              .AddOptionButton .ControlConstr(0,False), "DEPOSIT_IN_INCOME", "DEPOSIT_IN_INCOME", "Списать залог в доход", 1
+              .AddOptionButton .ControlConstr(0,True), "DEPOSIT_IN_DEMAND_INVOICE", "DEPOSIT_IN_DEMAND_INVOICE", "Списать залог на счет до востребования", 0    
+         End With
+              .AddLabel        .LabelConstr(True) , "Причина"
+              .AddTextBox      .ControlConstr()    , "Причина", "TXT", TXT , 2000, True, 0
+
+
+      End With
+
+	If Not .Exec Then Exit Sub
+    KEY_LOSS= .Value("KEY_LOSS")
+    KEY_NO_LOSS= .Value("KEY_NO_LOSS")
+    DEPOSIT_IN_INCOME= .Value("DEPOSIT_IN_INCOME")
+    DEPOSIT_IN_DEMAND_INVOICE= .Value("DEPOSIT_IN_DEMAND_INVOICE")
+    TXT= .Value("TXT")
+    End With
+    
+          'Проверим остаток на счете аренды 47422, если есть то списываем полностью в доход          
+          #sql_smt{select gc.saldo.signed(a.s,a.cur)
+                         ,s.num_ibs
+                         ,to_char(s.date_open,'dd.mm.yyyy')
+                         ,s.num_dog 
+                         ,'Перечисление в доход остатка ИБС № '||s.Num_Ibs||' по договору № '||s.Num_Dog||' от '||to_char(s.date_open,'dd.mm.yyyy')||'; '||ss.Name
+                               into :vOst_rent
+                                   ,:vNum_Ibs
+                                   ,:vDOPEN
+                                   ,:vNum_dog 
+                                   ,:vNazPlat
+                               from gc.sdm_ibs s
+                                   ,gc.acc a 
+                                   ,gc.subj ss
+                              where 1=1 
+                                and a.objid = s.objid_rent 
+                                and s.objid = :pObjid
+                                and ss.id = s.subj_id;
+                     }  
+         'Проверим остаток на счете аренды 42309, если есть то списываем           
+          #sql_smt{select gc.saldo.signed(a.s,a.cur)
+                               into :vOst_Deposit 
+                               from gc.sdm_ibs s
+                                   ,gc.acc a 
+                              where 1=1 
+                                and a.objid = s.objid_deposit 
+                                and s.objid = :pObjid;
+                     }  
+
+          IF (KEY_NO_LOSS = "True" or KEY_NO_LOSS = "Истина") then
+                  #sql_smt{begin :vUnp := gc.SDM$IBS.VNEB_KEY_CREATE_DOC(:pObjID,'CLOSE',null); end;}
+          END IF
+          'Если остаток на счете залога есть, то перечисляем его в доход или на счет невыясненных сумм, в зависимости от выбора пользователя
+
+          IF vOst_Deposit > 0 and (DEPOSIT_IN_INCOME = "True" or DEPOSIT_IN_INCOME = "Истина") then
+                  #sql_smt{begin :vUnp := gc.SDM$IBS.UNLOCK_DEPOSIT(:pObjID,:vOst_Deposit,:pDeposit,'1',sysdate,null,nvl(:vUnp,null)); end;}                     
+          END IF        
+          IF vOst_Deposit > 0 and (DEPOSIT_IN_INCOME = "False" or DEPOSIT_IN_INCOME = "Ложь") then
+                  #sql_smt{begin :vUnp := gc.SDM$IBS.UNLOCK_DEPOSIT(:pObjID,:vOst_Deposit,:pDeposit,'2',sysdate,null,null); end;}                     
+          END IF          
+          IF vOst_Rent > 0 then 
+                  #sql_smt{begin :vUnp := gc.sdm$ibs.income_ibs(:pObjid,:vOst_Rent,null,null,sysdate,:vNazPlat,nvl(:vUnp,null)); end;} 
+          END if
+          
+            Set MDoc = CreateObject("MDocum.UDocum")
+            If MDoc.AskConfirmDocs(vUnp,"Сформировать пачку документов?") Then
+              #sql_smt{ gc.p_support.arm_start(); commit;
+                         gc.jour_pack.add_to_journal('SDMIBS',:pObjID,'SDMIBS_ULOCK','U','',:TXT);
+                         gc.sdm$ibs.close_ibs(:pOBJID,'No'); 
+                       commit;
+                       }
+            Else
+            #sql_smt{ gc.p_support.arm_start(); rollback; }
+            End If                               
+
+End Sub
+
+Sub REESTR_END_IBS
+
+Set M=CreateObject("MMessages.UMessages")
+    Set CD=CreateObject("MDIALOG.CDIALOG")
+
+    With CD
+      .Caption = "Параметры"
+      .FormName = "SDM$REESTR_END_IBS"	
+      .style = 16
+      .cmdCancel.Caption="Отменить действие"
+      .cmdOk.Caption="Выполнить"
+      With .Group
+
+      '        .AddLabel        .LabelConstr(True) , "Количество дней до окончания ячейки"
+      '        .AddLabel        .LabelConstr(True) , "0 - заканчиваются сегодня"
+      '        .AddTextBox      .ControlConstr()    , "Количество", "NMB", 0 , 3, True, 0 or 8192
+        .AddLabel .LabelConstr(True), "Дата с"
+        .AddDateTimePicker2 .ControlConstr(), "Дата с", "DateSt", "dd/mm/yyyy", DateSt, False
+
+        .AddLabel .LabelConstr(True), "Дата по"
+        .AddDateTimePicker2 .ControlConstr(), "Дата по", "DateEn", "dd/mm/yyyy", DateEn, False      
+
+      End With
+	If Not .Exec Then Exit Sub
+          'NMB = .Value("NMB")
+          DateSt = .Value("DateSt")
+          DateEn = .Value("DateEn")
+    End With
+
+filename="v:\reports\IBS\REESTR_END_IBS.xls"
+
+Set xlsApp=CreateObject("Excel.Application")
+
+Set wkb = xlsApp.Workbooks.open(filename,,1)
+Set wks = wkb.ActiveSheet
+
+set ds=#sql_cur{
+SELECT DISTINCT S.FILIAL||' / '||S.OTDEL OTDEL
+      ,S.NUM_IBS 
+      ,CASE WHEN S.IBS_TYPE = '1' THEN 'Простое хранение'
+            WHEN S.IBS_TYPE = '2' THEN 'Ответственное хранение'
+            WHEN S.IBS_TYPE = '3' THEN 'Сделка простое хранение'
+            WHEN S.IBS_TYPE = '4' THEN 'Сделка ответсвенное хранение'
+       END IBS_TYPE 
+      ,CASE WHEN S.IBS_TYPE IN ('3','4') THEN 'Арендатор 1 : '||S1.NAME||chr(13)||chr(10)||'Арендатор 2 : '||S2.NAME
+            ELSE S1.NAME
+       END FIO          
+      ,S.NUM_DOG
+      ,DECODE(NVL(H.VIP,0),0,'','Да') VIP   
+      ,TO_CHAR(S.DATE_OPEN,'DD.MM.YYYY') DOPEN
+      ,TO_CHAR(S.DFINAL,'DD.MM.YYYY') DFINAL
+      ,CASE WHEN S.IBS_TYPE IN ('3','4') THEN 'Арендатор 1 : '||PHONE_1.NUM||chr(13)||chr(10)||'Арендатор 2 : '||PHONE_2.NUM
+            ELSE PHONE_1.NUM END PHONE 
+      ,CASE WHEN S.IBS_TYPE IN ('3','4') THEN 'Арендатор 1 : '||MAIL_1.NUM||chr(13)||chr(10)||'Арендатор 2 : '||MAIL_2.NUM
+            ELSE MAIL_1.NUM END MAIL  
+      ,CASE WHEN DFINAL < SYSDATE THEN 'Да' ELSE 'Нет' END DELAY  
+      ,DECODE(S.PROLONG,'1','Да','Нет') PROLONG 
+      ,S.SIZE_IBS  
+     FROM GC.SDM_IBS S
+         ,GC.SUBJ S1
+         ,GC.SUBJ S2
+         ,GC.HUMAN H
+         ,GC.SDM$IBS_PHONE PHONE_1
+         ,GC.SDM$IBS_PHONE PHONE_2
+         ,GC.SDM$IBS_PHONE MAIL_1
+         ,GC.SDM$IBS_PHONE MAIL_2         
+WHERE 1=1
+  AND S.DATE_CLOSE IS NULL     
+  AND S1.ID = S.SUBJ_ID
+  AND S2.ID (+)= S.LINKSUBJ
+  AND H.SUBJ_ID = S1.ID
+  AND PHONE_1.SUBJ_ID (+)= S1.ID
+  AND PHONE_1.TYPESUBJ (+)= 'SUBJ'
+  AND PHONE_1.TYPEPHONE (+)= 'PHONE'
+  AND PHONE_2.SUBJ_ID (+)= S2.ID
+  AND PHONE_2.TYPESUBJ (+)= 'SUBJDOP'
+  AND PHONE_2.TYPEPHONE (+)= 'PHONE'
+  AND MAIL_1.SUBJ_ID (+)= S1.ID
+  AND MAIL_1.TYPESUBJ (+)= 'SUBJ'
+  AND MAIL_1.TYPEPHONE (+)= 'MAIL'
+  AND MAIL_2.SUBJ_ID (+)= S2.ID
+  AND MAIL_2.TYPESUBJ (+)= 'SUBJDOP'
+  AND MAIL_2.TYPEPHONE (+)= 'MAIL'  
+--  AND (DFINAL - TRUNC(SYSDATE) <= :NMB AND :NMB = '0' 
+--     or DFINAL - TRUNC(SYSDATE) <= :NMB AND DFINAL >= TRUNC(SYSDATE) AND :NMB <> '0' 
+--     )
+  AND DFINAL BETWEEN TO_DATE(:DateSt,'DD/MM/YYYY')
+                 AND TO_DATE(:DateEn,'DD/MM/YYYY')
+  ORDER BY TO_NUMBER(S.NUM_IBS)     
+ 
+}
+
+
+x=4
+
+DO until ds.EOF
+	a01=ds.fields("OTDEL")
+	a02=ds.fields("NUM_IBS")
+	a03=ds.fields("IBS_TYPE")
+    a04=ds.fields("FIO")
+    a05=ds.fields("NUM_DOG")
+    a06=ds.fields("SIZE_IBS")
+    a07=ds.fields("VIP")
+    a08=ds.fields("DOPEN")
+    a09=ds.fields("DFINAL")
+    a10=ds.fields("PHONE")
+    a11=ds.fields("MAIL")
+    a12=ds.fields("DELAY")
+    a13=ds.fields("PROLONG")
+
+
+    wks.Cells(x,1) = a01
+	wks.Cells(x,2) = a02
+	wks.Cells(x,3) = a03
+    wks.Cells(x,4) = a04
+    wks.Cells(x,5) = a05
+    wks.Cells(x,6) = a06 
+    wks.Cells(x,7) = a07 
+    wks.Cells(x,8) = a08 
+    wks.Cells(x,9) = a09 
+    wks.Cells(x,10) = a10 
+    wks.Cells(x,11) = a11 
+    wks.Cells(x,12) = a12 
+    wks.Cells(x,13) = a13 
+
+
+
+	x=x+1
+	ds.movenext
+loop
+	xlsApp.Visible = True
+End Sub
+
+
+Sub GLOBAL_QUALS
+ set dlg=createobject("mdialog.cdialog")
+ Set MS = CreateObject("MScripts.UScripts")
+Set M=CreateObject("MMessages.UMessages")
+  vObjID=GridForm.Text("OBJID")
+
+
+#sql_smt{select NVL(GC.R_UTIL.TEST_RIGHT_EX('SDM_UPD_IBS_QUALS',GC.USER_LOGIN.USER_ID,NULL,1),0) 
+INTO :CHECK_RIGHT
+FROM DUAL;}
+
+IF CHECK_RIGHT = 0 THEN 
+M.ErrorMsgBox "Отсутсвует право на изменение глобальных настроек ИБС (SDM_UPD_IBS_QUALS)"
+Exit Sub
+END IF
+
+With DLG
+    .Caption = "Глобальные настройки"
+    .FormName = "SDM$IBS$GLOBAL"
+    .style = 16
+    .cmdCancel.Caption="Отмена"
+    .cmdOk.Caption="Ок"
+
+
+ Set GlobalQualsDs = OraEmptyDynaset
+          If Oraexecplsql(False,"begin :GlobalQualsDs := gc.sdm$ibs.get_global_quals(); end;", "GlobalQualsDs", GlobalQualsDs) Then
+              vGlobalQualsDSRef = MS.Obj2Long(GlobalQualsDs)
+              Request.Add "GlobalQualsDsRef", vGlobalQualsDSRef
+              Set FFG=CreateObject("MScripts.cUserGridForm")
+              FFG.Init "SDM$IBS$GLOBAL", Request, "Глобальные настройки", false, false, "NAME_QUAL", "OnUpdateComAcc"
+              FFG.AddGridColumn "NAME_QUAL", "Настройка", 10, 0
+              FFG.AddGridColumn "VALUE", "Значение", 10, 0
+              FFG.AddCommand "UpdQual", "Редактировать", True, False, "Edit"
+              FFG.AddCommand "Journal_Quals", "Журнал", True, False, "jour"
+
+              FFG.Show 1
+              Request.Add "GlobalQualsDsRef", ""
+
+              If FFG.GetSelectedCount = 1 Then
+                vGlobalQualID=FFG.GetSelectedItem(0)     
+              End If
+              Else
+              GlobalQualsDs.MoveFirst
+              vGlobalQualID = GlobalQualsDs.Fields("NAME_QUAL").Value()
+              End If
+
+END With
+
+End Sub
+
+
+Sub UpdQual
+Set M=CreateObject("MMessages.UMessages")
+vNAME_QUAL=GridForm.Text("NAME_QUAL")
+
+vVALUE=GridForm.Text("VALUE")
+set dlg=createobject("mdialog.cdialog")
+
+     With DLG
+    .Caption = "Сумма"
+    .FormName = "IBS_ANNUL_DOVER"
+    .style = 16
+    .cmdCancel.Caption="Отмена"
+IF vVALUE = "Действует" THEN
+    .cmdOk.Caption="Изменить на (Не действует)"
+END IF
+IF vVALUE = "Не действует" THEN
+    .cmdOk.Caption="Изменить на (Действует)"
+END IF
+
+  With .Group
+
+        .AddLabel        .LabelConstr(False) , vNAME_QUAL
+
+End with
+
+	If Not .Exec Then Exit Sub
+IF vVALUE = "Действует" THEN
+#sql_smt{UPDATE GC.SDM$IBS_GLOBAL_QUALS SET VALUE = 'Не действует' where NAME_QUAL = :vName_QUAL;
+         INSERT INTO GC.SDM$IBS_GLOBAL_QUAL_JOUR 
+         SELECT :vName_QUAL,'Действует','Не действует',sysdate,(select s.name from gc.luser l,gc.subj s where l.username = SYS_CONTEXT('USERENV','SESSION_USER') and s.id = l.gid) from dual;
+         commit;}
+END IF
+IF vVALUE = "Не действует" THEN
+#sql_smt{UPDATE GC.SDM$IBS_GLOBAL_QUALS SET VALUE = 'Действует' where NAME_QUAL = :vName_QUAL;
+         INSERT INTO GC.SDM$IBS_GLOBAL_QUAL_JOUR 
+         SELECT :vName_QUAL,'Не действует','Действует',sysdate,(select s.name from gc.luser l,gc.subj s where l.username = SYS_CONTEXT('USERENV','SESSION_USER') and s.id = l.gid) from dual;
+         commit;}
+END IF
+End With
+
+
+
+End Sub
+
+
+Sub Journal_Quals
+
+Set M=CreateObject("MMessages.UMessages")
+    Set CD=CreateObject("MDIALOG.CDIALOG")
+
+    With CD
+      .Caption = "Параметры"
+      .FormName = "SDM$GLOBAL_QUALS_JOUR"	
+      .style = 16
+      .cmdCancel.Caption="Отменить действие"
+      .cmdOk.Caption="Выполнить"
+      With .Group
+
+
+        .AddLabel .LabelConstr(True), "Дата с"
+        .AddDateTimePicker2 .ControlConstr(), "Дата с", "DateSt", "dd/mm/yyyy", DateSt, False
+
+        .AddLabel .LabelConstr(True), "Дата по"
+        .AddDateTimePicker2 .ControlConstr(), "Дата по", "DateEn", "dd/mm/yyyy", DateEn, False      
+
+      End With
+	If Not .Exec Then Exit Sub
+          DateSt = .Value("DateSt")
+          DateEn = .Value("DateEn")
+    End With
+
+filename="v:\reports\IBS\GLOBAL_QUALS_JOUR.xls"
+
+Set xlsApp=CreateObject("Excel.Application")
+
+Set wkb = xlsApp.Workbooks.open(filename,,1)
+Set wks = wkb.ActiveSheet
+
+set ds=#sql_cur{
+SELECT NAME_QUAL
+      ,OLD_VALUE
+      ,NEW_VALUE
+      ,DTIME
+      ,USR               
+     FROM GC.SDM$IBS_GLOBAL_QUAL_JOUR        
+WHERE 1=1
+  AND DTIME BETWEEN TO_DATE(:DateSt,'DD/MM/YYYY')
+                AND TO_DATE(:DateEn,'DD/MM/YYYY')
+  ORDER BY DTIME     
+ 
+}
+
+
+x=4
+
+DO until ds.EOF
+	a01=ds.fields("NAME_QUAL")
+	a02=ds.fields("OLD_VALUE")
+	a03=ds.fields("NEW_VALUE")
+    a04=ds.fields("DTIME")
+    a05=ds.fields("USR")
+
+
+
+    wks.Cells(x,1) = a01
+	wks.Cells(x,2) = a02
+	wks.Cells(x,3) = a03
+    wks.Cells(x,4) = a04
+    wks.Cells(x,5) = a05
+
+	x=x+1
+	ds.movenext
+loop
+	xlsApp.Visible = True
+
+End Sub
+
+
+
+Sub OnAccRowChange
+
+%>
