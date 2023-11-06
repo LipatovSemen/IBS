@@ -1,16 +1,16 @@
---Îòêðûâàåì â ïëàíå ñ÷åòîâ PS=011 ñ÷åò 42309
+--ÃŽÃ²ÃªÃ°Ã»Ã¢Ã Ã¥Ã¬ Ã¢ Ã¯Ã«Ã Ã­Ã¥ Ã±Ã·Ã¥Ã²Ã®Ã¢ PS=011 Ã±Ã·Ã¥Ã² 42309
 
 
 declare
-vKey number;                --êëþ÷
-pFilialId varchar2(15) := 'M'; --------------------------------------------------------------------------------------ôèëèàë ÍÎÌÅÐ
-t_mask varchar2(25);        --Íîâûé ÍÍÑ
-V_ACCNUM varchar2(12);      --12-çíà÷íûé íîìåð íîâîãî ñ÷åòà
-bs_sys varchar2(10) ;       --ñèñòåìíûé íîìåð íîâîãî áàëàíñîâîãî
-id_owner varchar2(10) := '382'; --ÈÄ âëàäåëüöà ñ÷åòà
-type_acc varchar2(1);       --ïðèçíàê ñ÷åòà
-date_open date :=sysdate;   --Äàòà îòêðûòèÿ ñ÷åòà
-name_acc varchar2(256);     --Íàèìåíîâàíèå ñ÷åòà
+vKey number;                --ÃªÃ«Ã¾Ã·
+pFilialId varchar2(15) := 'M'; --------------------------------------------------------------------------------------Ã´Ã¨Ã«Ã¨Ã Ã« ÃÃŽÃŒÃ…Ã
+t_mask varchar2(25);        --ÃÃ®Ã¢Ã»Ã© ÃÃÃ‘
+V_ACCNUM varchar2(12);      --12-Ã§Ã­Ã Ã·Ã­Ã»Ã© Ã­Ã®Ã¬Ã¥Ã° Ã­Ã®Ã¢Ã®Ã£Ã® Ã±Ã·Ã¥Ã²Ã 
+bs_sys varchar2(10) ;       --Ã±Ã¨Ã±Ã²Ã¥Ã¬Ã­Ã»Ã© Ã­Ã®Ã¬Ã¥Ã° Ã­Ã®Ã¢Ã®Ã£Ã® Ã¡Ã Ã«Ã Ã­Ã±Ã®Ã¢Ã®Ã£Ã®
+id_owner varchar2(10) := '382'; --ÃˆÃ„ Ã¢Ã«Ã Ã¤Ã¥Ã«Ã¼Ã¶Ã  Ã±Ã·Ã¥Ã²Ã 
+type_acc varchar2(1);       --Ã¯Ã°Ã¨Ã§Ã­Ã Ãª Ã±Ã·Ã¥Ã²Ã 
+date_open date :=sysdate;   --Ã„Ã Ã²Ã  Ã®Ã²ÃªÃ°Ã»Ã²Ã¨Ã¿ Ã±Ã·Ã¥Ã²Ã 
+name_acc varchar2(256);     --ÃÃ Ã¨Ã¬Ã¥Ã­Ã®Ã¢Ã Ã­Ã¨Ã¥ Ã±Ã·Ã¥Ã²Ã 
 s_ObjID varchar2(12);
 v_ObjID varchar2(12);
 ident rowid;
@@ -28,13 +28,13 @@ into v42309
 where 1=1
 and bbaln = '42309' 
 and p.ps = '011' 
-and upper(p.name) like '%ß×ÅÉÊ%';
+and upper(p.name) like '%ÃŸÃ—Ã…Ã‰ÃŠ%';
 
 for r in ( 
 
 select  
     nns as newnns
-    ,'ÄÎ Íèæíèé Íîâãîðîä. Ñ÷åò çàëîãà áàíêîâñêîé ÿ÷åéêè ¹ '||num_ibs as name_acc
+    ,'Ã„ÃŽ ÃÃ¨Ã¦Ã­Ã¨Ã© ÃÃ®Ã¢Ã£Ã®Ã°Ã®Ã¤. Ã‘Ã·Ã¥Ã² Ã§Ã Ã«Ã®Ã£Ã  Ã¡Ã Ã­ÃªÃ®Ã¢Ã±ÃªÃ®Ã© Ã¿Ã·Ã¥Ã©ÃªÃ¨ Â¹ '||num_ibs as name_acc
     ,v42309 as bs_sys   
 from sdm$ibs_nns
 where 1=1
@@ -47,27 +47,27 @@ select type into type_acc from plan where bs=v42309;
 DBMS_OUTPUT.put_line(r.newnns||' '||r.bs_sys||' '||type_acc||' '||r.name_acc);
 
 t_mask := r.newnns;
-vKey := nns.Get_Key(r.newnns, pFilialId); --ðàññ÷èòàåì êëþ÷
-t_mask := nns.Set_Field(t_mask, vKey, 9, 1); --âñòàâèì êëþ÷ â ÍÍÑ
+vKey := nns.Get_Key(r.newnns, pFilialId); --Ã°Ã Ã±Ã±Ã·Ã¨Ã²Ã Ã¥Ã¬ ÃªÃ«Ã¾Ã·
+t_mask := nns.Set_Field(t_mask, vKey, 9, 1); --Ã¢Ã±Ã²Ã Ã¢Ã¨Ã¬ ÃªÃ«Ã¾Ã· Ã¢ ÃÃÃ‘
 GC.INS_DOG_USL(V_ACCNUM,'810','382','1',null,v42309,'U',V_OTDEL=>'3012703215',V_DOPEN=>sysdate,NO_NNS=>true);
 select s into S_ObjID from acc where dog_id=V_ACCNUM;
-gc.nns.SetNewNNS(S_ObjID,'810',t_mask,date_open,null) ;   ---- çàâåäåíèå íîâîãî NNS
+gc.nns.SetNewNNS(S_ObjID,'810',t_mask,date_open,null) ;   ---- Ã§Ã Ã¢Ã¥Ã¤Ã¥Ã­Ã¨Ã¥ Ã­Ã®Ã¢Ã®Ã£Ã® NNS
 select rowid into ident from gc.acc where s = s_objid;
 GC.UPD_ACC(ident,V_AUTOCLEAR=>NULL,V_STATUS=>0,V_NAME=>r.name_acc); 
 
---Ïðîñòàâèì ÂÈÄ ÏËÀÒÅÆÀ äëÿ äîãîâîðà ïîñòàâùèêà óñëóã. 
+--ÃÃ°Ã®Ã±Ã²Ã Ã¢Ã¨Ã¬ Ã‚ÃˆÃ„ ÃÃ‹Ã€Ã’Ã…Ã†Ã€ Ã¤Ã«Ã¿ Ã¤Ã®Ã£Ã®Ã¢Ã®Ã°Ã  Ã¯Ã®Ã±Ã²Ã Ã¢Ã¹Ã¨ÃªÃ  Ã³Ã±Ã«Ã³Ã£. 
 select rowid into ident1 from gc.dog where s = s_objid;
-select ID into SPRAV_ID from gc.sprav where type = chr(37) and name = 'ÈÁÑ ÑÏÈÑÀÍÈÅ ÇÀËÎÃÀ ÇÀ ÊËÞ×';
+select ID into SPRAV_ID from gc.sprav where type = chr(37) and name = 'ÃˆÃÃ‘ Ã‘ÃÃˆÃ‘Ã€ÃÃˆÃ… Ã‡Ã€Ã‹ÃŽÃƒÃ€ Ã‡Ã€ ÃŠÃ‹ÃžÃ—';
 GC.UPD_DOG(ident1,'1',NULL,V_STATUS=>0,V_SPRAV_ID=>SPRAV_ID);
---Ïðîñòàâèì ÂÈÄ ÏËÀÒÅÆÀ äëÿ äîãîâîðà ïîñòàâùèêà óñëóã. 
+--ÃÃ°Ã®Ã±Ã²Ã Ã¢Ã¨Ã¬ Ã‚ÃˆÃ„ ÃÃ‹Ã€Ã’Ã…Ã†Ã€ Ã¤Ã«Ã¿ Ã¤Ã®Ã£Ã®Ã¢Ã®Ã°Ã  Ã¯Ã®Ã±Ã²Ã Ã¢Ã¹Ã¨ÃªÃ  Ã³Ã±Ã«Ã³Ã£. 
 
---- óñòàíàâëèâàåì EXT_CONS_ACC
+--- Ã³Ã±Ã²Ã Ã­Ã Ã¢Ã«Ã¨Ã¢Ã Ã¥Ã¬ EXT_CONS_ACC
 select ObjID into v_ObjID from acc where s=s_OBJID;
 if not gc.radd_q(objtype_ =>'ACC'
                     ,objid_ =>v_ObjID
                     ,name_ =>'EXT_CONS_ACC'
                     ,num_ => 0
-                    ,txt_ =>'Äîáàâëåí ïðè ââåäåíèè ôóíêöèîíàëà ïî ÈÁÑ'
+                    ,txt_ =>'Ã„Ã®Ã¡Ã Ã¢Ã«Ã¥Ã­ Ã¯Ã°Ã¨ Ã¢Ã¢Ã¥Ã¤Ã¥Ã­Ã¨Ã¨ Ã´Ã³Ã­ÃªÃ¶Ã¨Ã®Ã­Ã Ã«Ã  Ã¯Ã® ÃˆÃÃ‘'
                     ,value_ =>t_mask
                     ,date_b_ => sysdate
                     ,date_e_ => null
@@ -76,15 +76,15 @@ if not gc.radd_q(objtype_ =>'ACC'
         gc.app_err.put ('BOOKKEEP', 292);
     end if;   
 
---Äîáàâëåíèå âíåøíèõ ðåêâèçèòîâ
+--Ã„Ã®Ã¡Ã Ã¢Ã«Ã¥Ã­Ã¨Ã¥ Ã¢Ã­Ã¥Ã¸Ã­Ã¨Ãµ Ã°Ã¥ÃªÃ¢Ã¨Ã§Ã¨Ã²Ã®Ã¢
 GC.SET_REKV(s_Objid
            ,'810'
            ,'044525685'
            ,'30101810845250000685'
            ,'00000810100000000001'
-           ,'"ÑÄÌ-ÁÀÍÊ" (ÏÀÎ)'
-           ,'"ÑÄÌ-ÁÀÍÊ" (ÏÀÎ)'
-           ,'ÌÎÑÊÂÀ'
+           ,'"Ã‘Ã„ÃŒ-ÃÃ€ÃÃŠ" (ÃÃ€ÃŽ)'
+           ,'"Ã‘Ã„ÃŒ-ÃÃ€ÃÃŠ" (ÃÃ€ÃŽ)'
+           ,'ÃŒÃŽÃ‘ÃŠÃ‚Ã€'
            ,V_UNB=>NULL
            ,V_SELF_MFO=>NULL
            ,V_NEW_MFO=>NULL
